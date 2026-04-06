@@ -69,20 +69,23 @@ dev:
 tailwind:
 	python manage.py tailwind start
 
+# ── Comandos Django (dev: directo | prod: dentro del container) ───────────────
+MANAGE := $(shell [ -f .env ] && . ./.env && [ "$${DEBUG}" = "False" ] && echo "docker compose exec django python manage.py" || echo "python manage.py")
+
 migrate:
-	python manage.py migrate
+	$(MANAGE) migrate
 
 migrations:
-	python manage.py makemigrations
+	$(MANAGE) makemigrations
 
 shell:
-	python manage.py shell
+	$(MANAGE) shell
 
 superuser:
-	python manage.py createsuperuser
+	$(MANAGE) createsuperuser
 
 collect:
-	python manage.py collectstatic --noinput
+	$(MANAGE) collectstatic --noinput
 
 # ── Base de datos (dev) ────────────────────────────────────────────────────────
 db-shell:
