@@ -25,7 +25,11 @@ echo ""
 
 # ── 1. Detener contenedores en ejecución ──────────────────────────────────────
 echo "▶ Deteniendo contenedores..."
-docker compose down --remove-orphans 2>/dev/null || true
+docker compose \
+    --profile postgres \
+    --profile n8n \
+    --profile n8n-mcp \
+    down --remove-orphans 2>/dev/null || true
 docker network prune -f 2>/dev/null || true
 echo ""
 
