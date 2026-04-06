@@ -1,0 +1,21 @@
+# Datos y runtime
+db/
+*.sqlite3
+.env
+.env.*
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Node
+node_modules/
+theme/static_src/node_modules/
+
+# Dev y CI
+.git/
+.github/
+*.log
