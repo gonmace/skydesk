@@ -26,6 +26,7 @@ echo ""
 # ── 1. Detener contenedores en ejecución ──────────────────────────────────────
 echo "▶ Deteniendo contenedores..."
 docker compose down --remove-orphans 2>/dev/null || true
+docker network prune -f 2>/dev/null || true
 echo ""
 
 # ── 2. Verificar puertos disponibles ──────────────────────────────────────────
