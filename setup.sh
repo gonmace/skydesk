@@ -161,7 +161,7 @@ else
         echo ""
     else
         POSTGRES_MODE=container
-        POSTGRES_HOST=localhost
+        POSTGRES_HOST=postgres
         _DEFAULT=$(get_env POSTGRES_DB)
         POSTGRES_DB=${_DEFAULT:-${PROJECT_NAME}_db}
         _DEFAULT=$(get_env POSTGRES_USER)
