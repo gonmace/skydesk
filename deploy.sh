@@ -23,7 +23,12 @@ N8N_MCP_ENABLED=${N8N_MCP_ENABLED:-}
 echo "━━━ Desplegando: ${PROJECT_NAME} (${DOMAIN}) ━━━"
 echo ""
 
-# ── 1. Verificar puertos disponibles ──────────────────────────────────────────
+# ── 1. Detener contenedores en ejecución ──────────────────────────────────────
+echo "▶ Deteniendo contenedores..."
+docker compose down --remove-orphans 2>/dev/null || true
+echo ""
+
+# ── 2. Verificar puertos disponibles ──────────────────────────────────────────
 echo "▶ Verificando puertos..."
 if ! bash check-ports.sh; then
     echo ""
@@ -32,11 +37,11 @@ if ! bash check-ports.sh; then
 fi
 echo ""
 
-# ── 2. Actualizar código ───────────────────────────────────────────────────────
+# ── 3. Actualizar código ───────────────────────────────────────────────────────
 echo "▶ Actualizando código..."
 git pull origin main
 
-# ── 3. Construir lista de profiles ────────────────────────────────────────────
+# ── 4. Construir lista de profiles ────────────────────────────────────────────
 PROFILES=""
 
 if [ "${POSTGRES_MODE}" = "container" ]; then
@@ -63,10 +68,9 @@ else
     echo "  n8n: deshabilitado (N8N_DOMAIN no definido)"
 fi
 
-# ── 4. Reconstruir y reiniciar contenedores ────────────────────────────────────
+# ── 5. Reconstruir y reiniciar contenedores ────────────────────────────────────
 echo ""
 echo "▶ Reconstruyendo contenedores Docker..."
-docker compose down
 docker compose ${PROFILES} up -d --build
 
 echo ""
