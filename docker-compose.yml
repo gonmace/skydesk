@@ -105,7 +105,7 @@ services:
     container_name: ${PROJECT_NAME}_n8n_mcp
     restart: always
     environment:
-      N8N_BASE_URL: http://n8n:5678
+      N8N_API_URL: http://n8n:5678
       N8N_API_KEY: ${N8N_API_KEY}
       AUTH_TOKEN: ${N8N_MCP_AUTH_TOKEN}
       MCP_MODE: http

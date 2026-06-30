@@ -40,6 +40,9 @@ dev-check:
 n8n-export:
 	bash docker/n8n-export.sh
 
+n8n-import:
+	bash docker/n8n-import.sh
+
 # Actualizar n8n: pull nueva imagen + restart del contenedor
 # Los datos (workflows, credenciales) se preservan en el volumen ./volumes/n8n
 n8n-update:
@@ -116,6 +119,6 @@ logs:
 down:
 	docker compose down
 
-.PHONY: setup dev-up dev-down dev-logs dev-check n8n-export n8n-update install dev tailwind \
+.PHONY: setup dev-up dev-down dev-logs dev-check n8n-export n8n-import n8n-update install dev tailwind \
         migrate migrations shell superuser collect db-shell db-reset \
         deploy nginx check-ports logs down

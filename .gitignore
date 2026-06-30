@@ -47,6 +47,9 @@ Thumbs.db
 volumes/
 db/
 
+# n8n (workflows sí se versionan, credenciales no)
+n8n/credentials/
+
 # Nginx generado por nginx-deploy.sh (usa PROJECT_NAME como nombre)
 *.conf
 !nginx.conf
