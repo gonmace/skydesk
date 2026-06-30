@@ -58,3 +58,4 @@ n8n/credentials/
 
 # Archivos de Claude Code
 .claude/
+.impeccable/
