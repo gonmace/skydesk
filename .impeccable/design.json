@@ -1,0 +1,207 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-06-30T00:00:00Z",
+  "title": "Design System: Dj-Skeleton",
+  "extensions": {
+    "colorMeta": {
+      "signal-indigo": {
+        "role": "primary",
+        "displayName": "Signal Indigo",
+        "canonical": "oklch(59% 0.22 264)",
+        "tonalRamp": ["#1e0e5a", "#2d1a87", "#3e2fb6", "#5048d8", "#6366f1", "#8589f6", "#aeb0f9", "#d7d8fd"]
+      },
+      "signal-indigo-deep": {
+        "role": "primary",
+        "displayName": "Signal Indigo Deep",
+        "canonical": "oklch(54% 0.24 264)",
+        "tonalRamp": ["#1a0b50", "#28157c", "#382aa8", "#493fce", "#4f46e5", "#7070ef", "#9a9cf6", "#d0d1fc"]
+      },
+      "signal-indigo-muted": {
+        "role": "primary",
+        "displayName": "Signal Indigo Muted",
+        "canonical": "oklch(68% 0.18 264)",
+        "tonalRamp": ["#1e0e5a", "#2d1a87", "#3e2fb6", "#5048d8", "#6366f1", "#818cf8", "#aeb0f9", "#d7d8fd"]
+      },
+      "sky-accent": {
+        "role": "secondary",
+        "displayName": "Sky Accent",
+        "canonical": "oklch(68% 0.20 213)",
+        "tonalRamp": ["#032845", "#043e6c", "#015494", "#0270be", "#0ea5e9", "#38bdf8", "#7dd3fc", "#e0f5ff"]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "canonical": "oklch(0% 0 0)",
+        "tonalRamp": ["#000000", "#1a1a1a", "#333333", "#4d4d4d", "#666666", "#808080", "#b3b3b3", "#e6e6e6"]
+      },
+      "ink-secondary": {
+        "role": "neutral",
+        "displayName": "Ash",
+        "canonical": "oklch(32% 0.01 253)",
+        "tonalRamp": ["#1a1c1e", "#2a2d30", "#3a3d42", "#45484d", "#5e6166", "#7a7d82", "#a0a3a8", "#d4d5d8"]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Surface White",
+        "canonical": "oklch(100% 0 0)",
+        "tonalRamp": ["#cccccc", "#d5d5d5", "#dfdfdf", "#e6e6e6", "#efefef", "#f5f5f5", "#fafafa", "#ffffff"]
+      },
+      "surface-dark": {
+        "role": "neutral",
+        "displayName": "Charcoal",
+        "canonical": "oklch(28% 0.008 285)",
+        "tonalRamp": ["#1c1c1f", "#242427", "#2e2e32", "#3a3a3e", "#4a4a50", "#5e5e66", "#8e8e93", "#e8e8ed"]
+      },
+      "success": {
+        "role": "semantic",
+        "displayName": "Emerald",
+        "canonical": "oklch(72% 0.17 162)",
+        "tonalRamp": ["#052e16", "#14532d", "#166534", "#15803d", "#16a34a", "#22c55e", "#4ade80", "#bbf7d0"]
+      },
+      "warning": {
+        "role": "semantic",
+        "displayName": "Amber",
+        "canonical": "oklch(79% 0.18 80)",
+        "tonalRamp": ["#451a03", "#78350f", "#92400e", "#b45309", "#d97706", "#f59e0b", "#fbbf24", "#fef3c7"]
+      },
+      "error": {
+        "role": "semantic",
+        "displayName": "Ember",
+        "canonical": "oklch(62% 0.20 38)",
+        "tonalRamp": ["#431407", "#7c2d12", "#9a3412", "#c2410c", "#ea580c", "#f97316", "#fb923c", "#fed7aa"]
+      }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "Page titles, error page headings, modal titles. Max one per view." },
+      "title": { "displayName": "Title", "purpose": "Section headings, card titles, sidebar section labels." },
+      "body": { "displayName": "Body", "purpose": "All prose content. Max 65–75ch line length." },
+      "label": { "displayName": "Label", "purpose": "UI labels, button text, nav links, table headers." },
+      "mono": { "displayName": "Mono", "purpose": "Code snippets, env var names, shell commands, file paths." }
+    },
+    "shadows": [
+      {
+        "name": "floating",
+        "value": "0 4px 24px rgba(0,0,0,0.12), 0 1px 4px rgba(0,0,0,0.08)",
+        "purpose": "Modals, command palette, dropdowns. Communicates surface is above the page."
+      },
+      {
+        "name": "toast",
+        "value": "0 2px 12px rgba(0,0,0,0.10)",
+        "purpose": "Notification banners. Lighter than floating; stays contextual."
+      }
+    ],
+    "motion": [
+      {
+        "name": "state-change",
+        "value": "150ms cubic-bezier(0, 0, 0.2, 1)",
+        "purpose": "Default for interactive state transitions (button hover, input focus, nav active)."
+      },
+      {
+        "name": "appear",
+        "value": "200ms cubic-bezier(0, 0, 0.2, 1)",
+        "purpose": "Dropdown/modal appearance. Fade + scale-up from 96%."
+      }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "md", "value": "768px" },
+      { "name": "lg", "value": "1024px" },
+      { "name": "xl", "value": "1280px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Main call-to-action. One per view. Signal Indigo fill.",
+      "html": "<button class=\"ds-btn-primary\">Desplegar</button>",
+      "css": ".ds-btn-primary { background: #6366f1; color: #ffffff; padding: 0.625rem 1.25rem; border-radius: 0.5rem; font-family: system-ui, -apple-system, sans-serif; font-size: 0.875rem; font-weight: 600; line-height: 1.25; border: none; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; min-height: 2.5rem; transition: background 0.15s cubic-bezier(0,0,0.2,1); user-select: none; } .ds-btn-primary:hover { background: #4f46e5; } .ds-btn-primary:focus-visible { outline: 2px solid #6366f1; outline-offset: 2px; } .ds-btn-primary:active { background: #4338ca; } .ds-btn-primary:disabled { opacity: 0.4; cursor: not-allowed; pointer-events: none; }"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Secondary action sharing space with a primary button. Transparent background.",
+      "html": "<button class=\"ds-btn-ghost\">Cancelar</button>",
+      "css": ".ds-btn-ghost { background: transparent; color: #6366f1; padding: 0.625rem 1.25rem; border-radius: 0.5rem; font-family: system-ui, -apple-system, sans-serif; font-size: 0.875rem; font-weight: 600; border: none; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; min-height: 2.5rem; transition: background 0.15s cubic-bezier(0,0,0.2,1); } .ds-btn-ghost:hover { background: rgba(99,102,241,0.10); } .ds-btn-ghost:focus-visible { outline: 2px solid #6366f1; outline-offset: 2px; } .ds-btn-ghost:disabled { opacity: 0.4; cursor: not-allowed; }"
+    },
+    {
+      "name": "Base Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Tertiary/table-row actions. No color, low visual weight.",
+      "html": "<button class=\"ds-btn-base\">Ver detalles</button>",
+      "css": ".ds-btn-base { background: transparent; color: #45484d; padding: 0.5rem 1rem; border-radius: 0.5rem; font-family: system-ui, -apple-system, sans-serif; font-size: 0.875rem; font-weight: 500; border: none; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; min-height: 2rem; transition: background 0.15s cubic-bezier(0,0,0.2,1), color 0.15s; } .ds-btn-base:hover { background: #e6e6e6; color: #000000; } .ds-btn-base:focus-visible { outline: 2px solid #6366f1; outline-offset: 2px; }"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input-base",
+      "description": "Standard text field. Outlined stroke, indigo focus glow.",
+      "html": "<input class=\"ds-input\" type=\"text\" placeholder=\"Nombre del proyecto\">",
+      "css": ".ds-input { background: #ffffff; color: #000000; border: 1px solid #cccccc; border-radius: 0.5rem; padding: 0.625rem 0.875rem; font-family: system-ui, -apple-system, sans-serif; font-size: 1rem; line-height: 1.5; width: 100%; min-height: 3rem; box-sizing: border-box; transition: border-color 0.15s cubic-bezier(0,0,0.2,1), box-shadow 0.15s cubic-bezier(0,0,0.2,1); } .ds-input:focus { outline: none; border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,0.15); } .ds-input::placeholder { color: #6b7280; } .ds-input:disabled { opacity: 0.5; cursor: not-allowed; background: #f5f5f5; } .ds-input.error { border-color: #ea580c; box-shadow: 0 0 0 3px rgba(234,88,12,0.15); }"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card-base",
+      "description": "Container for grouped content. Place on bg-base-200 for visual separation without shadow.",
+      "html": "<div class=\"ds-card\"><h2 class=\"ds-card-title\">Configuración</h2><p class=\"ds-card-body\">Variables de entorno del proyecto.</p></div>",
+      "css": ".ds-card { background: #ffffff; border-radius: 1rem; padding: 1.5rem; } .ds-card-title { font-family: system-ui, -apple-system, sans-serif; font-size: 1.25rem; font-weight: 600; color: #000000; line-height: 1.3; letter-spacing: -0.005em; margin: 0 0 0.5rem; } .ds-card-body { font-family: system-ui, -apple-system, sans-serif; font-size: 1rem; color: #45484d; line-height: 1.5; margin: 0; }"
+    },
+    {
+      "name": "Top Navigation",
+      "kind": "nav",
+      "description": "56px top bar. White in light mode, dark charcoal in dark mode. No shadow.",
+      "html": "<nav class=\"ds-navbar\"><span class=\"ds-navbar-brand\">Dj-Skeleton</span><div class=\"ds-navbar-links\"><a class=\"ds-navbar-link active\" href=\"#\">Inicio</a><a class=\"ds-navbar-link\" href=\"#\">Admin</a></div></nav>",
+      "css": ".ds-navbar { background: #ffffff; border-bottom: 1px solid #e6e6e6; padding: 0 1.5rem; height: 3.5rem; display: flex; align-items: center; justify-content: space-between; font-family: system-ui, -apple-system, sans-serif; } .ds-navbar-brand { font-size: 0.9375rem; font-weight: 700; color: #000000; letter-spacing: -0.01em; } .ds-navbar-links { display: flex; gap: 0.25rem; } .ds-navbar-link { font-size: 0.875rem; font-weight: 500; color: #45484d; padding: 0.375rem 0.75rem; border-radius: 0.375rem; text-decoration: none; transition: background 0.15s, color 0.15s; } .ds-navbar-link:hover { background: #f3f4f6; color: #000000; } .ds-navbar-link.active { color: #6366f1; background: rgba(99,102,241,0.08); }"
+    },
+    {
+      "name": "Code Block",
+      "kind": "custom",
+      "description": "Inline and block code. System monospace font. Sunken surface.",
+      "html": "<div class=\"ds-code-block\"><code>make deploy</code></div><p>Ejecuta <code class=\"ds-code-inline\">make dev</code> en local.</p>",
+      "css": ".ds-code-block { background: #e6e6e6; border-radius: 0.5rem; padding: 1rem; font-family: ui-monospace, Menlo, Monaco, 'Cascadia Code', monospace; font-size: 0.875rem; line-height: 1.6; color: #000000; overflow-x: auto; } .ds-code-block code { background: none; padding: 0; } .ds-code-inline { background: rgba(99,102,241,0.10); color: #4f46e5; border-radius: 0.25rem; padding: 0.125rem 0.375rem; font-family: ui-monospace, Menlo, Monaco, 'Cascadia Code', monospace; font-size: 0.875em; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Confident Default",
+    "overview": "This is a design system built on the premise that the best defaults don't require justification. Signal Indigo (#6366f1) is the one accent; the surface is either white or dark charcoal (#3a3a3e); the type is the system font stack. None of this is lazy — it is deliberate. The skeleton has made its decisions, documented them, and trusts the developer to override what needs overriding.\n\nThe tone is tool-like: dense where density serves the user, clear where clarity earns trust. A developer looking at a screen built on this system should feel oriented immediately — not charmed, not wowed. The interface disappears into the task.\n\nDark mode is not a toggle bolted on after the fact. It is a first-class sibling. Both themes share the same spatial grammar; only the color values change.",
+    "keyCharacteristics": [
+      "Single sans family (system-ui) across all roles — no display/body split",
+      "Signal Indigo used exclusively for primary actions, current selection, focus rings — not decoration",
+      "Elevation via tonal layers (base-100 / base-200 / base-300), never drop-shadows",
+      "Compact scale ratio (1.125) — product density, not editorial rhythm",
+      "Semantic color vocabulary (success / warning / error / info) standardized across both themes"
+    ],
+    "rules": [
+      { "name": "The One Signal Rule", "body": "Signal Indigo is used on ≤10% of any screen at rest. A screen where everything is indigo has no signals. Reserve it for what matters: the primary button, the active nav item, the focus ring.", "section": "colors" },
+      { "name": "The No-Decoration Rule", "body": "Color is semantic here, not aesthetic. If a color is not carrying meaning (action, state, severity), it is not on the screen.", "section": "colors" },
+      { "name": "The Single Stack Rule", "body": "One font family, no exceptions. No display face imported for headings. Import cost: zero. Consistency: guaranteed.", "section": "typography" },
+      { "name": "The Label Floor Rule", "body": "No UI text below 0.8125rem (13px). Below that, text stops being readable; it is just visual texture.", "section": "typography" },
+      { "name": "The Flat-by-Default Rule", "body": "Surfaces at rest have no shadow. If you are reaching for shadow-xl on a card that is not floating, stop. Use bg-base-200 as the background instead.", "section": "elevation" },
+      { "name": "The Float Exception", "body": "Shadows appear only when a surface is genuinely detached from flow: modals, dropdowns, tooltips, toasts. Not cards. Not sidebars. Not hero sections.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do use bg-base-200 as the page shell so bg-base-100 cards visually float without any shadow.",
+      "Do cap body text at 65–75ch with max-w-prose or an equivalent constraint.",
+      "Do use the three-level tonal scale consistently: base-300 for borders/dividers, base-200 for backgrounds, base-100 for content surfaces.",
+      "Do apply text-wrap: balance to all h1–h3 headings.",
+      "Do include every interactive state (hover, focus, active, disabled) before marking a component done.",
+      "Do use monospace for any string the developer will copy — env var names, commands, file paths, token values.",
+      "Do test contrast in both light and dark themes separately."
+    ],
+    "donts": [
+      "Don't use border-left or border-right wider than 1px as a colored accent stripe on cards, callouts, or alerts.",
+      "Don't use gradient fills on buttons, headings, or backgrounds. background-clip: text with a gradient is prohibited.",
+      "Don't apply glassmorphism effects (backdrop-filter blur on cards, translucent panels) as decoration.",
+      "Don't build a feature-grid card section with identical-sized cards sharing an icon + heading + text structure with no variation.",
+      "Don't use tiny all-caps tracked eyebrows above every section heading.",
+      "Don't use numbered section markers (01 / 02 / 03) as default scaffolding.",
+      "Don't let body text, placeholders, or labels fall below 4.5:1 contrast against their background.",
+      "Don't reach for a modal as the first solution for any secondary flow.",
+      "Don't ship a loading state as a spinner centered in a content area. Use skeleton states."
+    ]
+  }
+}
