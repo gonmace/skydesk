@@ -4,7 +4,7 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.views.generic import TemplateView
 from django.contrib.sitemaps.views import sitemap
-from home.sitemaps import StaticViewSitemap
+from core.sitemaps import StaticViewSitemap
 
 sitemaps = {
     'static': StaticViewSitemap,
@@ -13,10 +13,10 @@ sitemaps = {
 urlpatterns = [
     path(settings.ADMIN_URL, admin.site.urls),
     path('sitemap.xml', sitemap, {'sitemaps': sitemaps}, name='django.contrib.sitemaps.views.sitemap'),
+    # Nunca listar ADMIN_URL acá: robots.txt es público y delataría la ruta "secreta".
     path('robots.txt', TemplateView.as_view(
         template_name='robots.txt',
         content_type='text/plain',
-        extra_context={'ADMIN_URL': settings.ADMIN_URL},
     )),
     path('acceso/', include('accounts.urls')),
     path('notificaciones/', include('notifications.urls')),

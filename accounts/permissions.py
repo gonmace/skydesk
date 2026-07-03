@@ -22,7 +22,10 @@ CAPABILITIES = [
     ('chat.write', 'Escribir en el chat de seguimiento'),
     ('dashboard.view', 'Ver el dashboard de métricas'),
     ('projects.manage', 'Gestionar proyectos'),
-    ('roles.assign', 'Asignar roles a usuarios'),
+    # 'roles.assign' se eliminó del catálogo: nunca la consultó ningún código (las vistas
+    # de roles/usuarios son superuser-only vía _superuser_required) — el toggle en
+    # /acceso/roles/ prometía algo sin efecto. Las filas viejas en DB se ignoran.
+    ('tickets.unarchive', 'Desarchivar tickets'),
     ('tickets.view_waiting', 'Ver la columna Suspendido/Cancelado del tablero'),
     ('tickets.board_by_ticket', 'Ver el tablero por ticket completo (no por subticket propio)'),
 ]
@@ -96,6 +99,27 @@ def has_capability(user, capability):
     if '_capability_set' not in user.__dict__:
         user.__dict__['_capability_set'] = _load_capability_set(user)
     return capability in user.__dict__['_capability_set']
+
+
+def users_with_capability(capability):
+    """Usuarios activos que tienen la capacidad habilitada — para notificar a "quien
+    puede aprobar", etc. Replica la lógica de has_capability (override individual gana
+    sobre el default del rol) como queryset. Excluye a los superusers puros a propósito:
+    su bypass es administrativo, no significa que quieran recibir cada notificación
+    operativa (si un superuser además coordina, su Profile.role ya lo incluye)."""
+    from django.contrib.auth import get_user_model
+    from django.db.models import Q
+
+    User = get_user_model()
+    roles = RolePermission.objects.filter(
+        capability=capability, enabled=True).values_list('role', flat=True)
+    override_on = UserPermission.objects.filter(
+        capability=capability, enabled=True).values_list('user_id', flat=True)
+    override_off = UserPermission.objects.filter(
+        capability=capability, enabled=False).values_list('user_id', flat=True)
+    return User.objects.filter(is_active=True).filter(
+        Q(pk__in=override_on) | (Q(profile__role__in=roles) & ~Q(pk__in=override_off))
+    ).distinct()
 
 
 def require_capability(capability):

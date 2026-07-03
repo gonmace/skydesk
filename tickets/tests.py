@@ -429,7 +429,7 @@ class AssignmentNotifyTests(TestCase):
         self.coord = make_user('coord@e.com', Role.COORDINADOR)
         self.dev = make_user('dev@e.com', Role.EJECUTOR)
 
-    def test_create_with_executor_notifies_and_moves_to_todo(self):
+    def test_create_with_executor_notifies_but_stays_in_backlog(self):
         self.client.force_login(self.coord)
         r = self.client.post(reverse('tickets:create'), {
             'title': 'Nuevo', 'solicitante': 'Gerencia', 'priority': 'MEDIUM',
@@ -440,7 +440,9 @@ class AssignmentNotifyTests(TestCase):
         self.assertEqual(len(mail.outbox), 1)
         ticket = Ticket.objects.get(title='Nuevo')
         self.assertEqual(ticket.assignments.filter(user=self.dev, kind='EJECUTOR').count(), 1)
-        self.assertEqual(ticket.status, Ticket.Status.TODO)   # al asignar pasa a Por hacer
+        # Un ticket recién creado siempre queda en Necesidad, aunque ya se haya asignado
+        # ejecutor en el mismo formulario — pasa a Por hacer recién en una edición posterior.
+        self.assertEqual(ticket.status, Ticket.Status.BACKLOG)
 
     def test_reassign_notifies_new_executor(self):
         t = Ticket.objects.create(title='x', reporter=self.coord)
@@ -803,23 +805,32 @@ class SuspendLockTests(TestCase):
         self.assertEqual(unassigned.status, Ticket.Status.WAITING)
 
 
-class ArchiveSuperuserTests(TestCase):
-    """Archivar lo puede hacer cualquier editor; desarchivar (reactivar) es solo del superuser."""
+class ArchiveUnarchiveTests(TestCase):
+    """Archivar lo puede hacer cualquier editor; desarchivar exige la capacidad
+    tickets.unarchive (por defecto solo Coordinador — y superuser por bypass)."""
 
     def setUp(self):
         self.reporter = make_user('rep@e.com', Role.EJECUTOR)
+        self.coord = make_user('coord@e.com', Role.COORDINADOR)
         self.superuser = User.objects.create_superuser('root@e.com', 'root@e.com', 'x')
         self.ticket = Ticket.objects.create(
             title='T', reporter=self.reporter, status=Ticket.Status.DONE,
             archived_at=timezone.now(),
         )
 
-    def test_non_superuser_cannot_unarchive(self):
+    def test_ejecutor_cannot_unarchive(self):
         self.client.force_login(self.reporter)
         r = self.client.post(reverse('tickets:unarchive', args=[self.ticket.pk]))
         self.assertEqual(r.status_code, 403)
         self.ticket.refresh_from_db()
         self.assertTrue(self.ticket.is_archived)
+
+    def test_coordinador_can_unarchive(self):
+        self.client.force_login(self.coord)
+        r = self.client.post(reverse('tickets:unarchive', args=[self.ticket.pk]))
+        self.assertEqual(r.status_code, 302)
+        self.ticket.refresh_from_db()
+        self.assertFalse(self.ticket.is_archived)
 
     def test_superuser_can_unarchive(self):
         self.client.force_login(self.superuser)
@@ -1133,3 +1144,302 @@ class BacklogToTodoNotifyTests(TestCase):
             'executors': [self.dev.pk],
         })
         self.assertFalse(Notification.objects.filter(verb='puso en Por hacer').exists())
+
+
+@override_settings(**OV)
+class ReopenClearsApprovalTests(TestCase):
+    """Reabrir un subticket concluido (drag fuera de Concluido) invalida la aprobación:
+    approved_at/closed_date se limpian y la re-conclusión vuelve a exigir aprobación."""
+
+    def setUp(self):
+        self.coord = make_user('coord@e.com', Role.COORDINADOR)
+        self.dev = make_user('dev@e.com', Role.EJECUTOR)
+        self.ticket = Ticket.objects.create(title='T', reporter=self.coord, has_subproducts=True)
+        self.a = Assignment.objects.create(ticket=self.ticket, user=self.dev, kind=Assignment.Kind.EJECUTOR)
+        self.ticket.recompute_status()
+
+    def _move(self, status):
+        self.client.force_login(self.dev)
+        return self.client.post(reverse('tickets:assignment_move'),
+                                data=json.dumps({'assignment': self.a.pk, 'status': status}),
+                                content_type='application/json')
+
+    def test_reopen_after_approval_requires_reapproval(self):
+        self.client.force_login(self.dev)
+        self.client.post(reverse('tickets:assignment_conclude', args=[self.a.pk]), {'conclusion': 'v1'})
+        self.client.force_login(self.coord)
+        self.client.post(reverse('tickets:approve', args=[self.ticket.pk]))
+        self.a.refresh_from_db()
+        self.assertIsNotNone(self.a.approved_at)
+
+        # El ejecutor reabre para rehacer el trabajo…
+        self._move('IN_PROGRESS')
+        self.a.refresh_from_db()
+        self.assertIsNone(self.a.approved_at)
+        self.assertIsNone(self.a.closed_date)
+
+        # …y al re-concluir queda pendiente de aprobación otra vez (no auto-aprobado).
+        self.client.force_login(self.dev)
+        self.client.post(reverse('tickets:assignment_conclude', args=[self.a.pk]), {'conclusion': 'v2'})
+        self.a.refresh_from_db()
+        self.assertTrue(self.a.needs_approval)
+        self.ticket.refresh_from_db()
+        self.assertNotEqual(self.ticket.status, Ticket.Status.DONE)
+
+
+@override_settings(**OV)
+class RejectConclusionTests(TestCase):
+    """El coordinador puede rechazar una conclusión con feedback obligatorio: vuelve a
+    En progreso, genera comentario y notifica al ejecutor."""
+
+    def setUp(self):
+        self.coord = make_user('coord@e.com', Role.COORDINADOR)
+        self.dev = make_user('dev@e.com', Role.EJECUTOR)
+        self.ticket = Ticket.objects.create(title='T', reporter=self.coord, has_subproducts=True)
+        self.a = Assignment.objects.create(ticket=self.ticket, user=self.dev, kind=Assignment.Kind.EJECUTOR)
+        self.ticket.recompute_status()
+        self.client.force_login(self.dev)
+        self.client.post(reverse('tickets:assignment_conclude', args=[self.a.pk]), {'conclusion': 'listo'})
+
+    def test_reject_returns_to_in_progress_with_feedback(self):
+        self.client.force_login(self.coord)
+        r = self.client.post(reverse('tickets:reject', args=[self.ticket.pk]), {'feedback': 'Falta el anexo B'})
+        self.assertEqual(r.status_code, 302)
+        self.a.refresh_from_db()
+        self.assertEqual(self.a.status, Ticket.Status.IN_PROGRESS)
+        self.assertIsNone(self.a.approved_at)
+        self.assertIsNone(self.a.closed_date)
+        self.assertTrue(Comment.objects.filter(
+            ticket=self.ticket, body__contains='Falta el anexo B').exists())
+        self.assertTrue(Notification.objects.filter(
+            recipient=self.dev, verb__contains='rechazó tu conclusión').exists())
+
+    def test_reject_without_feedback_changes_nothing(self):
+        self.client.force_login(self.coord)
+        self.client.post(reverse('tickets:reject', args=[self.ticket.pk]), {'feedback': '  '})
+        self.a.refresh_from_db()
+        self.assertEqual(self.a.status, Ticket.Status.DONE)
+
+    def test_executor_cannot_reject(self):
+        self.client.force_login(self.dev)
+        r = self.client.post(reverse('tickets:reject', args=[self.ticket.pk]), {'feedback': 'x'})
+        self.assertEqual(r.status_code, 403)
+
+
+@override_settings(**OV)
+class ApprovePermissionTests(TestCase):
+    """Aprobar exige tickets.close: un ejecutor no puede aprobar su propia conclusión."""
+
+    def setUp(self):
+        self.coord = make_user('coord@e.com', Role.COORDINADOR)
+        self.dev = make_user('dev@e.com', Role.EJECUTOR)
+        self.ticket = Ticket.objects.create(title='T', reporter=self.dev, has_subproducts=True)
+        self.a = Assignment.objects.create(ticket=self.ticket, user=self.dev, kind=Assignment.Kind.EJECUTOR)
+        self.ticket.recompute_status()
+        self.client.force_login(self.dev)
+        self.client.post(reverse('tickets:assignment_conclude', args=[self.a.pk]), {'conclusion': 'ok'})
+
+    def test_executor_cannot_self_approve(self):
+        r = self.client.post(reverse('tickets:approve', args=[self.ticket.pk]))
+        self.assertEqual(r.status_code, 403)
+        self.a.refresh_from_db()
+        self.assertIsNone(self.a.approved_at)
+
+    def test_conclusion_notifies_coordinators_not_only_reporter(self):
+        # El reporter es el propio ejecutor: sin notificar a quienes tienen tickets.close,
+        # ningún coordinador se enteraba de que había algo por aprobar.
+        self.assertTrue(Notification.objects.filter(
+            recipient=self.coord, verb__contains='pendiente de aprobación').exists())
+
+
+@override_settings(**OV)
+class SuspendPreservesDoneTests(TestCase):
+    """Suspender no pisa subtickets concluidos; reactivar restaura el estado previo."""
+
+    def setUp(self):
+        self.coord = make_user('coord@e.com', Role.COORDINADOR)
+        self.dev1 = make_user('d1@e.com', Role.EJECUTOR)
+        self.dev2 = make_user('d2@e.com', Role.EJECUTOR)
+        self.ticket = Ticket.objects.create(title='T', reporter=self.coord, has_subproducts=True)
+        self.a1 = Assignment.objects.create(ticket=self.ticket, user=self.dev1, kind=Assignment.Kind.EJECUTOR)
+        self.a2 = Assignment.objects.create(ticket=self.ticket, user=self.dev2, kind=Assignment.Kind.EJECUTOR)
+        self.ticket.recompute_status()
+        # dev1 concluye; el coordinador aprueba su parte.
+        self.client.force_login(self.dev1)
+        self.client.post(reverse('tickets:assignment_conclude', args=[self.a1.pk]), {'conclusion': 'ok'})
+        self.client.force_login(self.coord)
+        self.client.post(reverse('tickets:approve', args=[self.ticket.pk]))
+        # dev2 está trabajando.
+        self.a2.advance_to(Ticket.Status.IN_PROGRESS)
+        self.a2.save()
+
+    def test_suspend_leaves_done_untouched_and_restore_returns_previous_state(self):
+        self.client.force_login(self.coord)
+        self.client.post(reverse('tickets:suspend', args=[self.ticket.pk]))
+        self.a1.refresh_from_db(); self.a2.refresh_from_db()
+        self.assertEqual(self.a1.status, Ticket.Status.DONE)       # el concluido no se pisa
+        self.assertIsNotNone(self.a1.approved_at)                   # ni pierde la aprobación
+        self.assertEqual(self.a2.status, Ticket.Status.WAITING)
+        self.assertEqual(self.a2.status_before_suspend, Ticket.Status.IN_PROGRESS)
+
+        self.client.post(reverse('tickets:suspend', args=[self.ticket.pk]))  # reactiva
+        self.a1.refresh_from_db(); self.a2.refresh_from_db()
+        self.assertEqual(self.a1.status, Ticket.Status.DONE)
+        self.assertEqual(self.a2.status, Ticket.Status.IN_PROGRESS)  # no TODO
+        self.assertEqual(self.a2.status_before_suspend, '')
+
+    def test_suspend_notifies_participants(self):
+        self.client.force_login(self.coord)
+        self.client.post(reverse('tickets:suspend', args=[self.ticket.pk]))
+        self.assertTrue(Notification.objects.filter(
+            recipient=self.dev2, verb__contains='suspendió/canceló').exists())
+
+
+@override_settings(**OV)
+class UnassignGuardTests(TestCase):
+    """Editar el ticket desmarcando a un ejecutor con trabajo NO borra su Assignment;
+    si no tiene trabajo, se borra, se lo notifica y el historial sobrevive (SET_NULL)."""
+
+    def setUp(self):
+        self.coord = make_user('coord@e.com', Role.COORDINADOR)
+        self.worked = make_user('worked@e.com', Role.EJECUTOR)
+        self.idle = make_user('idle@e.com', Role.EJECUTOR)
+        self.ticket = Ticket.objects.create(title='T', solicitante='X', reporter=self.coord,
+                                            has_subproducts=True)
+        self.a_worked = Assignment.objects.create(
+            ticket=self.ticket, user=self.worked, kind=Assignment.Kind.EJECUTOR)
+        self.a_idle = Assignment.objects.create(
+            ticket=self.ticket, user=self.idle, kind=Assignment.Kind.EJECUTOR)
+        self.ticket.recompute_status()
+        self.a_worked.advance_to(Ticket.Status.IN_PROGRESS)   # trabajo empezado
+        self.a_worked.save()
+
+    def _edit(self, executor_pks):
+        self.client.force_login(self.coord)
+        return self.client.post(reverse('tickets:edit', args=[self.ticket.pk]), {
+            'title': self.ticket.title, 'solicitante': 'X', 'description': '',
+            'priority': Ticket.Priority.MEDIUM, 'has_subproducts': 'on',
+            'executors': [str(pk) for pk in executor_pks],
+        })
+
+    def test_unassign_with_work_is_kept(self):
+        self._edit([self.idle.pk])   # desmarca a worked
+        self.assertTrue(Assignment.objects.filter(pk=self.a_worked.pk).exists())
+
+    def test_unassign_without_work_deletes_and_notifies(self):
+        self._edit([self.worked.pk])   # desmarca a idle (sin started_at)
+        self.assertFalse(Assignment.objects.filter(pk=self.a_idle.pk).exists())
+        self.assertTrue(Notification.objects.filter(
+            recipient=self.idle, verb__contains='te desasignó').exists())
+
+    def test_history_survives_assignment_deletion(self):
+        from .models import TicketEvent
+        ev = TicketEvent.objects.create(
+            ticket=self.ticket, actor=self.idle, kind='status',
+            detail='movió su subticket', assignment=self.a_idle)
+        self._edit([self.worked.pk])
+        ev.refresh_from_db()
+        self.assertIsNone(ev.assignment)   # SET_NULL, no CASCADE
+
+
+@override_settings(**OV)
+class ExecutorCannotWaitTests(TestCase):
+    """assignment_move rechaza WAITING a quien no ve esa columna (tickets.view_waiting):
+    aceptarlo mandaba la tarea a una columna invisible e irreversible para el ejecutor."""
+
+    def setUp(self):
+        self.dev = make_user('dev@e.com', Role.EJECUTOR)
+        self.ticket = Ticket.objects.create(title='T', reporter=self.dev)
+        self.a = Assignment.objects.create(ticket=self.ticket, user=self.dev, kind=Assignment.Kind.EJECUTOR)
+        self.ticket.recompute_status()
+
+    def test_waiting_rejected_for_executor(self):
+        self.client.force_login(self.dev)
+        r = self.client.post(reverse('tickets:assignment_move'),
+                             data=json.dumps({'assignment': self.a.pk, 'status': 'WAITING'}),
+                             content_type='application/json')
+        self.assertEqual(r.status_code, 400)
+        self.a.refresh_from_db()
+        self.assertEqual(self.a.status, Ticket.Status.TODO)
+
+
+@override_settings(**OV)
+class SuspendedParentChildTests(TestCase):
+    """Derivar/dividir un ticket suspendido: el hijo hereda el candado (suspended_at)."""
+
+    def setUp(self):
+        self.coord = make_user('coord@e.com', Role.COORDINADOR)
+        self.dev = make_user('dev@e.com', Role.EJECUTOR)
+        self.ticket = Ticket.objects.create(title='T', solicitante='X', reporter=self.coord)
+        self.a = Assignment.objects.create(ticket=self.ticket, user=self.dev, kind=Assignment.Kind.EJECUTOR)
+        self.ticket.recompute_status()
+        self.client.force_login(self.coord)
+        self.client.post(reverse('tickets:suspend', args=[self.ticket.pk]))
+        self.ticket.refresh_from_db()
+
+    def test_derived_child_inherits_lock(self):
+        self.client.post(reverse('tickets:derive', args=[self.ticket.pk]))
+        child = self.ticket.children.get()
+        self.assertIsNotNone(child.suspended_at)
+        # Y el ejecutor no puede mover el subticket del hijo.
+        child_a = child.assignments.get(user=self.dev)
+        self.client.force_login(self.dev)
+        r = self.client.post(reverse('tickets:assignment_move'),
+                             data=json.dumps({'assignment': child_a.pk, 'status': 'IN_PROGRESS'}),
+                             content_type='application/json')
+        self.assertEqual(r.status_code, 400)
+
+
+@override_settings(**OV)
+class NotifyDueTicketsCommandTests(TestCase):
+    """El command de cron notifica vence-mañana/hoy/venció-ayer y es idempotente en el día."""
+
+    def setUp(self):
+        from django.core.management import call_command
+        self.call_command = call_command
+        self.dev = make_user('dev@e.com', Role.EJECUTOR)
+        today = timezone.localdate()
+        for delta, title in ((1, 'mañana'), (0, 'hoy'), (-1, 'ayer'), (10, 'lejano')):
+            t = Ticket.objects.create(title=title, reporter=self.dev,
+                                      due_date=today + timedelta(days=delta))
+            Assignment.objects.create(ticket=t, user=self.dev, kind=Assignment.Kind.EJECUTOR)
+
+    def test_notifies_and_is_idempotent(self):
+        self.call_command('notify_due_tickets')
+        qs = Notification.objects.filter(recipient=self.dev, verb__icontains='venc')
+        self.assertEqual(qs.count(), 3)   # mañana, hoy, ayer — no el lejano
+        self.call_command('notify_due_tickets')
+        self.assertEqual(qs.count(), 3)   # segunda corrida en el día: sin duplicados
+
+
+class RecomputeStatusCombosTests(TestCase):
+    """Regresión de recompute_status(): documenta el comportamiento agregado esperado."""
+
+    def setUp(self):
+        self.coord = make_user('coord@e.com', Role.COORDINADOR)
+        self.exp = make_user('exp@e.com', Role.EXPERTO)
+        self.dev1 = make_user('d1@e.com', Role.EJECUTOR)
+        self.dev2 = make_user('d2@e.com', Role.EJECUTOR)
+
+    def test_only_experts_is_backlog(self):
+        t = Ticket.objects.create(title='T', reporter=self.coord)
+        Assignment.objects.create(ticket=t, user=self.exp, kind=Assignment.Kind.EXPERTO)
+        self.assertEqual(t.recompute_status(), Ticket.Status.BACKLOG)
+
+    def test_suspended_wins_even_without_executors(self):
+        t = Ticket.objects.create(title='T', reporter=self.coord, suspended_at=timezone.now())
+        self.assertEqual(t.recompute_status(), Ticket.Status.WAITING)
+
+    def test_approved_done_plus_waiting_is_in_progress(self):
+        t = Ticket.objects.create(title='T', reporter=self.coord, has_subproducts=True)
+        Assignment.objects.create(ticket=t, user=self.dev1, kind=Assignment.Kind.EJECUTOR,
+                                  status=Ticket.Status.DONE, approved_at=timezone.now())
+        Assignment.objects.create(ticket=t, user=self.dev2, kind=Assignment.Kind.EJECUTOR,
+                                  status=Ticket.Status.WAITING)
+        self.assertEqual(t.recompute_status(), Ticket.Status.IN_PROGRESS)
+
+    def test_all_done_approved_is_done(self):
+        t = Ticket.objects.create(title='T', reporter=self.coord)
+        Assignment.objects.create(ticket=t, user=self.dev1, kind=Assignment.Kind.EJECUTOR,
+                                  status=Ticket.Status.DONE, approved_at=timezone.now())
+        self.assertEqual(t.recompute_status(), Ticket.Status.DONE)

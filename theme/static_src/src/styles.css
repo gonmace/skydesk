@@ -1,7 +1,7 @@
 @import "tailwindcss";
 @source not "../static";
 @source "../../../templates";
-@source "../../../home";
+@source "../../../attachments";
 @source "../../../accounts";
 @source "../../../tickets";
 @source "../../../notifications";

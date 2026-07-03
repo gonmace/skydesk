@@ -7,11 +7,18 @@ from . import services
 
 CACHE_TTL = 60 * 60 * 24  # 1 día
 
+# Tope para generar thumbnail: el blob completo se descarga del backend y se renderiza
+# EN el request (síncrono) — con adjuntos de hasta 20 MB, una grilla de PDFs recién
+# subidos podía consumir los 3 workers de gunicorn en descargas+renders simultáneos.
+MAX_SOURCE_SIZE = 8 * 1024 * 1024  # 8 MB
+
 
 def get_thumbnail(attachment, size=256):
     """PNG (bytes) del thumbnail del adjunto, o None si no aplica / falla."""
     if not attachment.has_thumbnail:
         return None
+    if (attachment.size or 0) > MAX_SOURCE_SIZE:
+        return None   # el template cae al ícono genérico, igual que sin thumbnail
     ckey = f'attthumb:{attachment.pk}:{size}'
     cached = cache.get(ckey)
     if cached is not None:

@@ -11,6 +11,7 @@ urlpatterns = [
     path('subticket/mover/', views.assignment_move, name='assignment_move'),
     path('subticket/<int:pk>/concluir/', views.assignment_conclude, name='assignment_conclude'),
     path('<int:pk>/aprobar/', views.ticket_approve, name='approve'),
+    path('<int:pk>/rechazar/', views.ticket_reject, name='reject'),
     path('<int:pk>/suspender/', views.ticket_suspend, name='suspend'),
     path('mis-tickets/', views.my_tickets, name='my_tickets'),
     path('seguimiento/', views.seguimiento, name='seguimiento'),

@@ -19,11 +19,9 @@ ENV DJANGO_SETTINGS_MODULE=core.settings
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libpq-dev \
-    gcc \
-    && rm -rf /var/lib/apt/lists/*
-
+# Sin gcc/libpq-dev: todas las dependencias (psycopg2-binary, pillow, PyMuPDF, uvloop…)
+# instalan como wheels precompilados en py3.12 — no hay nada que compilar, y dejar
+# toolchain en la imagen final solo agranda la superficie de ataque.
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
@@ -31,5 +29,10 @@ COPY ./ ./
 
 # CSS ya compilado y minificado desde la stage anterior
 COPY --from=css-builder /app/static/css/dist/ ./static/css/dist/
+
+# Usuario no-root (UID 1000 = usuario típico del VPS, así los volúmenes montados de
+# ./staticfiles y ./media quedan con ownership compatible con el host).
+RUN useradd --uid 1000 --create-home app && chown -R app:app /app
+USER app
 
 CMD ["sh", "entrypoint.sh"]

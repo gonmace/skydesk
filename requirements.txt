@@ -1,17 +1,20 @@
-Django>=5.2
-django-tailwind>=4.0
-whitenoise>=6.9
-pillow>=11.0
-python-decouple>=3.8
-psycopg2-binary>=2.9
-gunicorn>=23.0
-django-axes>=7.0
-django-csp>=4,<5
-django-redis>=5.4
-redis>=5.2
-requests>=2.32
-PyMuPDF>=1.24
-channels>=4.1
-channels-redis>=4.2
-daphne>=4.1
-uvicorn[standard]>=0.30
+# Versiones EXACTAS (== , no >=): deploy.sh rebuildea la imagen en cada deploy —
+# sin pin, un major nuevo de cualquier dependencia entraría a producción sin probarse.
+# Para actualizar: subir la versión acá, probar en dev (make dev + tests) y recién deployar.
+Django==6.0.6
+django-tailwind==4.5.0
+whitenoise==6.12.0
+pillow==12.2.0
+python-decouple==3.8
+psycopg2-binary==2.9.12
+gunicorn==26.0.0
+django-axes==8.3.1
+django-csp==4.0
+django-redis==7.0.0
+redis==8.0.1
+requests==2.34.2
+PyMuPDF==1.28.0
+channels==4.3.2
+channels-redis==4.3.0
+daphne==4.2.2
+uvicorn[standard]==0.49.0

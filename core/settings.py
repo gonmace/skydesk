@@ -25,7 +25,6 @@ INSTALLED_APPS = [
     'daphne',
     'channels',
 
-    'home',
     'accounts',
     'tickets',
     'attachments',
@@ -168,7 +167,15 @@ if config('EMAIL_HOST', default=''):
     EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='')
     EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
     DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='noreply@example.com')
+    # Sin timeout, un SMTP caído/lento cuelga el request indefinidamente — con 3 workers
+    # de gunicorn, 3 comentarios simultáneos congelaban la app entera.
+    EMAIL_TIMEOUT = config('EMAIL_TIMEOUT', default=10, cast=int)
 else:
+    if not DEBUG and os.path.exists(os.path.join(BASE_DIR, '.env')):
+        # En producción sin EMAIL_HOST, las activaciones de cuenta y resets de password
+        # "se enviarían" a los logs del contenedor — nadie los recibiría. Mismo criterio
+        # de fail-fast que SECRET_KEY (solo si hay .env: sin .env es instalación inicial).
+        raise ValueError('EMAIL_HOST no está en .env y DEBUG=False. Configurá el SMTP para producción.')
     EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 
 DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='SkyDesk Tickets <noreply@example.com>')
@@ -235,7 +242,10 @@ CACHES = {
     }
 }
 
-SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
+# cached_db: la DB es la fuente de verdad y Redis solo acelera lecturas. Con el
+# backend 'cache' puro, una caída de Redis daba 500 en TODA la app (cada request
+# toca la sesión) y cada deploy/restart de Redis deslogueaba a todos los usuarios.
+SESSION_ENGINE = 'django.contrib.sessions.backends.cached_db'
 SESSION_CACHE_ALIAS = 'default'
 
 # ── Channels (tiempo real, WebSockets) ─────────────────────────────────────────
@@ -258,6 +268,9 @@ CHANNEL_LAYERS = {
 AXES_FAILURE_LIMIT = 5
 AXES_COOLOFF_TIME = 1  # hora
 AXES_LOCKOUT_PARAMETERS = ['ip_address', 'username']
+# Detrás de nginx, REMOTE_ADDR es siempre 127.0.0.1 — sin esto el lockout por IP no
+# distingue clientes (ver core/client_ip.py).
+AXES_CLIENT_IP_CALLABLE = 'core.client_ip.client_ip'
 
 if DEBUG:
     # En desarrollo se usa el handler de base de datos para no depender de Redis.
@@ -296,7 +309,11 @@ N8N_API_KEY = config('N8N_API_KEY', default='')
 N8N_WEBHOOK_URL = config('N8N_WEBHOOK_URL', default='')
 
 # ── Admins y logging ──────────────────────────────────────────────────────────
-ADMINS = [('Admin', 'admin@example.com')]
+# ADMIN_EMAIL en .env — sin él no se manda mail de errores (antes iba hardcodeado a
+# admin@example.com, o sea a nadie). El handler de consola garantiza que los errores
+# de producción queden SIEMPRE en `docker logs`, haya o no email configurado.
+_admin_email = config('ADMIN_EMAIL', default='')
+ADMINS = [('Admin', _admin_email)] if _admin_email else []
 MANAGERS = ADMINS
 
 LOGGING = {
@@ -310,11 +327,15 @@ LOGGING = {
             'level': 'ERROR',
             'filters': ['require_debug_false'],
             'class': 'django.utils.log.AdminEmailHandler',
-        }
+        },
+        'console': {
+            'level': 'ERROR',
+            'class': 'logging.StreamHandler',
+        },
     },
     'loggers': {
         'django.request': {
-            'handlers': ['mail_admins'],
+            'handlers': ['mail_admins', 'console'],
             'level': 'ERROR',
             'propagate': True,
         },

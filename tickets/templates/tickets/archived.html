@@ -19,7 +19,7 @@
           </div>
           <p class="text-xs text-base-content/40">Archivado {{ t.archived_at|date:"d/m/Y H:i" }}</p>
         </div>
-        {% if is_superuser %}
+        {% if can_unarchive %}
           <form method="post" action="{% url 'tickets:unarchive' t.pk %}" data-confirm="¿Desarchivar {{ t.key }}?">{% csrf_token %}
             <button class="btn btn-ghost btn-xs">Desarchivar</button>
           </form>

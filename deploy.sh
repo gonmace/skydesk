@@ -23,30 +23,30 @@ N8N_MCP_ENABLED=${N8N_MCP_ENABLED:-}
 echo "━━━ Desplegando: ${PROJECT_NAME} (${DOMAIN}) ━━━"
 echo ""
 
-# ── 1. Detener contenedores en ejecución ──────────────────────────────────────
-echo "▶ Deteniendo contenedores..."
-docker compose \
-    --profile postgres \
-    --profile n8n \
-    --profile n8n-mcp \
-    down --remove-orphans 2>/dev/null || true
-docker network prune -f 2>/dev/null || true
-echo ""
-
-# ── 2. Verificar puertos disponibles ──────────────────────────────────────────
-echo "▶ Verificando puertos..."
-if ! bash check-ports.sh; then
+# ── 1. Verificar puertos (solo en frío) ───────────────────────────────────────
+# Si nuestros contenedores ya están corriendo, los puertos "ocupados" son nuestros
+# y `up -d --build` los reutiliza sin conflicto. No se hace `down` global: tumbar
+# Redis/PostgreSQL en cada deploy vaciaba cache/lockouts y causaba downtime total.
+# Tampoco `docker network prune`: en un VPS compartido borra redes de otros proyectos.
+if [ -z "$(docker compose ps -q 2>/dev/null)" ]; then
+    echo "▶ Verificando puertos..."
+    if ! bash check-ports.sh; then
+        echo ""
+        echo "Error: hay puertos ocupados. Resuelve los conflictos antes de continuar."
+        exit 1
+    fi
     echo ""
-    echo "Error: hay puertos ocupados. Resuelve los conflictos antes de continuar."
-    exit 1
 fi
-echo ""
 
-# ── 3. Actualizar código ───────────────────────────────────────────────────────
+# ── 2. Actualizar código ───────────────────────────────────────────────────────
 echo "▶ Actualizando código..."
 git pull origin main
 
-# ── 4. Construir lista de profiles ────────────────────────────────────────────
+# Los crea el usuario del deploy (no el daemon de Docker como root): el contenedor
+# corre como UID 1000 y necesita poder escribir en estos volúmenes montados.
+mkdir -p staticfiles media
+
+# ── 3. Construir lista de profiles ────────────────────────────────────────────
 PROFILES=""
 
 if [ "${POSTGRES_MODE}" = "container" ]; then
@@ -73,10 +73,12 @@ else
     echo "  n8n: deshabilitado (N8N_DOMAIN no definido)"
 fi
 
-# ── 5. Reconstruir y reiniciar contenedores ────────────────────────────────────
+# ── 4. Reconstruir y reiniciar contenedores ────────────────────────────────────
+# `up -d --build` solo recrea los servicios cuya imagen/config cambió (django);
+# redis y postgres siguen corriendo — las sesiones y la DB no se tocan.
 echo ""
 echo "▶ Reconstruyendo contenedores Docker..."
-docker compose ${PROFILES} up -d --build
+docker compose ${PROFILES} up -d --build --remove-orphans
 
 echo ""
 echo "✓ Despliegue completado → https://${DOMAIN}"

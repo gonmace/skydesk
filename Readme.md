@@ -293,8 +293,11 @@ Redis es siempre activo y optimiza tres aspectos clave:
 ## Estructura
 
 ```
-├── core/                    # Configuración Django (settings, urls, wsgi)
-├── home/                    # App principal (index, sitemaps)
+├── core/                    # Configuración Django (settings, urls, wsgi, sitemaps)
+├── accounts/                # Login, roles y permisos
+├── tickets/                 # Board Kanban, tickets, dashboard
+├── attachments/             # Adjuntos (Nextcloud/WebDAV, backends intercambiables)
+├── notifications/           # Notificaciones in-app
 ├── templates/               # Templates globales (base, 404, 500, robots.txt)
 ├── theme/                   # App Tailwind (static_src/ con npm build)
 ├── static/                  # Assets estáticos (img, css)

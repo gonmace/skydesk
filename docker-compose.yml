@@ -20,6 +20,10 @@ services:
     image: redis:7-alpine
     container_name: ${PROJECT_NAME}_redis
     restart: always
+    # AOF + volumen: sesiones, lockouts de axes y cache sobreviven a restarts
+    command: redis-server --appendonly yes
+    volumes:
+      - ./volumes/redis:/data
     networks:
       - app_network
     healthcheck:
@@ -50,6 +54,14 @@ services:
         condition: service_healthy
     networks:
       - app_network
+    healthcheck:
+      # Cualquier respuesta HTTP < 500 vale (un 400 por Host header también prueba que
+      # gunicorn atiende). Sin curl en python:slim — se usa la stdlib.
+      test: ["CMD-SHELL", "python -c \"import http.client; c=http.client.HTTPConnection('localhost', 8000, timeout=5); c.request('GET', '/robots.txt'); exit(0 if c.getresponse().status < 500 else 1)\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   n8n:
     profiles: [n8n]

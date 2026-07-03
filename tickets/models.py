@@ -42,7 +42,7 @@ class Project(models.Model):
 
 
 class Label(models.Model):
-    """Etiqueta de color para clasificar tickets (M2M)."""
+    """Actividad de trabajo (con color) para clasificar tickets (M2M)."""
     class Color(models.TextChoices):
         INFO = 'info', 'Azul'
         SUCCESS = 'success', 'Verde'
@@ -57,8 +57,8 @@ class Label(models.Model):
 
     class Meta:
         ordering = ['name']
-        verbose_name = 'Etiqueta'
-        verbose_name_plural = 'Etiquetas'
+        verbose_name = 'Actividad'
+        verbose_name_plural = 'Actividades'
 
     def __str__(self):
         return self.name
@@ -105,7 +105,7 @@ class Ticket(models.Model):
         related_name='tickets', verbose_name='Proyecto',
     )
     due_date = models.DateField('Vence', null=True, blank=True)
-    labels = models.ManyToManyField(Label, blank=True, related_name='tickets', verbose_name='Etiquetas')
+    labels = models.ManyToManyField(Label, blank=True, related_name='tickets', verbose_name='Actividades')
 
     position = models.PositiveIntegerField(default=0)
     closed_date = models.DateTimeField('Cerrado', null=True, blank=True)
@@ -286,13 +286,15 @@ class Comment(models.Model):
 class TicketEvent(models.Model):
     """Entrada del historial de actividad de un ticket (cambios de estado, asignación, etc.)."""
     ticket = models.ForeignKey(Ticket, on_delete=models.CASCADE, related_name='events')
+    # SET_NULL, no CASCADE: si se desasigna a alguien (se borra su Assignment), el
+    # historial del ticket debe sobrevivir — `detail` ya guarda el texto del evento.
     assignment = models.ForeignKey(
-        'Assignment', null=True, blank=True, on_delete=models.CASCADE, related_name='events',
+        'Assignment', null=True, blank=True, on_delete=models.SET_NULL, related_name='events',
     )
     actor = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name='+',
     )
-    kind = models.CharField(max_length=30)   # created | status | assignee | priority | due | conclude | approve | archived | split
+    kind = models.CharField(max_length=30)   # created | status | assignee | priority | due | conclude | approve | reject | archived | split
     detail = models.CharField(max_length=255, blank=True)
     created = models.DateTimeField(auto_now_add=True)
 
@@ -325,6 +327,10 @@ class Assignment(models.Model):
     time_in_progress = models.DurationField('Tiempo en En progreso', default=timedelta)
     status_changed_at = models.DateTimeField(default=timezone.now)
 
+    # Estado que tenía el subticket cuando el coordinador suspendió el ticket — al
+    # reactivar se restaura (antes todo volvía a TODO, "renaciendo" trabajo en progreso).
+    status_before_suspend = models.CharField(max_length=20, blank=True, default='')
+
     class Meta:
         unique_together = ('ticket', 'user')
         ordering = ['position', 'created']
@@ -350,6 +356,11 @@ class Assignment(models.Model):
 
         Solo TODO/IN_PROGRESS acumulan tiempo; WAITING (Esperando/Suspendido), DONE y
         BACKLOG pausan el reloj. No guarda — el caller decide cuándo hacer save().
+
+        Salir de DONE (reabrir) invalida la conclusión anterior: se limpian
+        `approved_at`/`closed_date`, así el trabajo rehecho vuelve a pasar por la
+        aprobación del coordinador (needs_approval) y el tiempo mostrado en el
+        detalle no queda congelado en el closed_date viejo.
         """
         now = now or timezone.now()
         bucket = self._TIME_BUCKETS.get(self.status)
@@ -357,6 +368,9 @@ class Assignment(models.Model):
             setattr(self, bucket, getattr(self, bucket) + (now - self.status_changed_at))
         if new_status == Ticket.Status.IN_PROGRESS and not self.started_at:
             self.started_at = now
+        if self.status == Ticket.Status.DONE and new_status != Ticket.Status.DONE:
+            self.approved_at = None
+            self.closed_date = None
         self.status = new_status
         self.status_changed_at = now
 

@@ -81,6 +81,7 @@
           <form method="post" action="{% url 'tickets:approve' ticket.pk %}">{% csrf_token %}
             <button class="btn btn-success btn-sm w-full">Aprobar conclusión</button>
           </form>
+          <label for="reject-modal" class="btn btn-error btn-outline btn-sm w-full">Rechazar conclusión</label>
         {% endif %}
         {% if can_edit %}<a href="{% url 'tickets:edit' ticket.pk %}" class="btn btn-edit btn-sm w-full">Editar ticket</a>{% endif %}
         <div class="flex gap-2">
@@ -218,6 +219,25 @@
   </div>
 
 </div>
+
+{% if not is_split and can_approve %}
+  <input type="checkbox" id="reject-modal" class="modal-toggle" />
+  <div class="modal" role="dialog">
+    <div class="modal-box">
+      <h3 class="font-bold text-lg">Rechazar conclusión</h3>
+      <p class="text-sm text-base-content/60 mt-1">La tarea vuelve a «En progreso» y el ejecutor recibe tu motivo como comentario y notificación.</p>
+      <form method="post" action="{% url 'tickets:reject' ticket.pk %}" class="mt-3 space-y-3">
+        {% csrf_token %}
+        <textarea name="feedback" rows="4" required class="textarea textarea-bordered w-full" placeholder="Qué falta o qué hay que corregir…"></textarea>
+        <div class="flex justify-end gap-2">
+          <label for="reject-modal" class="btn btn-ghost btn-sm">Cancelar</label>
+          <button class="btn btn-error btn-sm">Rechazar</button>
+        </div>
+      </form>
+    </div>
+    <label class="modal-backdrop" for="reject-modal">Cerrar</label>
+  </div>
+{% endif %}
 
 {% if my_assignment and my_assignment.status != 'DONE' %}
   <input type="checkbox" id="conclude-modal" class="modal-toggle" />

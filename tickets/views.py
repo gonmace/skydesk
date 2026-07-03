@@ -6,6 +6,7 @@ from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.mail import send_mail
 from django.core.paginator import Paginator
+from django.db import transaction
 from django.db.models import (
     Avg, Case, Count, DurationField, ExpressionWrapper, F, IntegerField, OuterRef, Q,
     Subquery, Value, When,
@@ -19,7 +20,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from accounts.permissions import has_capability, require_capability
+from accounts.permissions import has_capability, require_capability, users_with_capability
 from attachments import services as attachment_services
 
 from django.contrib.auth import get_user_model
@@ -39,6 +40,19 @@ def _log(ticket, actor, kind, detail='', assignment=None):
     # aprobar, suspender, editar...) — engancharse acá cubre el broadcast de una sola vez
     # en vez de repetirlo vista por vista.
     broadcast_board(ticket.pk)
+
+
+def _user_display(u):
+    return u.get_full_name().strip() or u.email or u.username
+
+
+def _lock_ticket(ticket_id):
+    """Toma el lock de fila del ticket — serializa mutaciones concurrentes sobre el mismo
+    ticket y su subgrafo de Assignments (dos coordinadores moviendo, aprobar vs. concluir,
+    etc.). Sin esto, los saves de objeto completo pisaban escrituras del otro lado
+    (p.ej. una conclusión recién escrita "se desconcluía" sola). Requiere estar dentro
+    de transaction.atomic(); en SQLite es un no-op inocuo (lockea la DB entera igual)."""
+    return Ticket.objects.select_for_update().get(pk=ticket_id)
 
 
 def _notify_assignment(request, ticket, users):
@@ -174,11 +188,13 @@ def _subticket_cards(visible, statuses, *, viewer):
     `viewer` = el ejecutor logueado (tablero del ejecutor): marca `is_ghost` en los
     subtickets ajenos y `my_assignment` es el propio dentro del grupo fusionado.
     `viewer=None` = vista de solo lectura (tablero del coordinador, ve TODOS los
-    subtickets sin atenuar): `is_readonly=True`, sin fantasmas ni "mi" asignación.
+    subtickets sin fantasmas): `is_readonly=True`, sin "mi" asignación — pero si el
+    caller marcó `a.is_muted` de antemano (ver `_parent_columns`), esa atenuación por
+    ticket sí se respeta y se propaga al entry `merged`.
 
     Devuelve {status_value: [entries]}; cada entry es {'type': 'subticket', 'a': a} o
     {'type': 'merged', 'ticket', 'group', 'link_color', 'is_locked', 'my_assignment',
-    'is_readonly'}."""
+    'is_readonly', 'is_muted'}."""
     for a in visible:
         a.is_ghost = viewer is not None and a.user_id != viewer.id
     # Mismo color (punto con ping) para todas las cards del mismo ticket, pero solo
@@ -210,6 +226,7 @@ def _subticket_cards(visible, statuses, *, viewer):
                     'type': 'merged', 'ticket': a.ticket, 'group': group,
                     'link_color': a.link_color, 'is_locked': a.is_locked,
                     'my_assignment': mine, 'is_readonly': viewer is None,
+                    'is_muted': getattr(a, 'is_muted', False),
                     'pending_approval': any(
                         x.status == Ticket.Status.DONE and not x.approved_at for x in group),
                 })
@@ -243,9 +260,15 @@ def _parent_columns(request):
     for t in tickets:
         ejec = [a for a in t.assignments.all() if a.kind == Assignment.Kind.EJECUTOR]
         if t.has_subproducts and ejec:
+            # is_muted a nivel ticket (no por assignment individual): el coordinador ve
+            # todos los subtickets sin fantasmas, pero sí atenuados salvo que él mismo sea
+            # ejecutor o experto de este ticket (mismo criterio que is_participant abajo).
+            is_participant = any(a.user_id == user.id for a in t.assignments.all())
+            t_is_muted = highlight_own and not (t.reporter_id == user.id or is_participant)
             for a in ejec:
                 a.ticket = t   # evita relanzar la query (t.assignments ya viene prefetched)
                 a.is_locked = bool(t.suspended_at)
+                a.is_muted = t_is_muted
                 subproduct_assignments.append(a)
             continue
         # Todos los ejecutores concluyeron pero falta la aprobación del coordinador:
@@ -359,49 +382,56 @@ def ticket_move(request):
     if status not in Ticket.Status.values:
         return HttpResponseBadRequest('estado inválido')
 
-    movable = {
-        t.pk: t for t in _visible_tickets(request.user)
-        .prefetch_related('assignments').filter(pk__in=order)
-    }
-    now = timezone.now()
-    for index, tid in enumerate(order):
-        ticket = movable.get(tid)
-        if ticket is None:
-            continue
-        if ticket.suspended_at:
-            continue   # bloqueado por el coordinador: solo se destraba vía ticket_suspend
-        old_status = ticket.status
-        status_changed = old_status != status
-        ejec = list(ticket.executor_assignments)
-        if status == Ticket.Status.BACKLOG and ejec:
-            continue   # "Necesidad" es la bandeja de tickets sin ejecutor (ver _visible_statuses)
-        ticket.position = index
-        if status_changed:
-            if status in _DRAG_STATUSES and ejec:
-                # Sincroniza los subtickets de los ejecutores con la card arrastrada —
-                # evita el desync ticket.status vs Assignment.status que dejaba, por
-                # ejemplo, un ticket con ejecutores asignados cayendo en BACKLOG.
-                for ea in ejec:
-                    ea.advance_to(status, now)
-                    if status == Ticket.Status.DONE:
-                        ea.closed_date = now
-                        if not ea.started_at:
-                            ea.started_at = ea.created
-                    ea.save()
-                ticket.save(update_fields=['position', 'updated'])
-                ticket.recompute_status()
+    with transaction.atomic():
+        # Lock de todas las filas afectadas ANTES de leerlas (queryset pelado, sin joins,
+        # para que el FOR UPDATE valga en Postgres y no rompa en SQLite) — así el fetch
+        # de abajo lee datos que nadie puede pisar hasta el commit.
+        list(Ticket.objects.select_for_update().filter(pk__in=order).values_list('pk', flat=True))
+        movable = {
+            t.pk: t for t in _visible_tickets(request.user)
+            .prefetch_related('assignments').filter(pk__in=order)
+        }
+        now = timezone.now()
+        for index, tid in enumerate(order):
+            ticket = movable.get(tid)
+            if ticket is None:
+                continue
+            if ticket.suspended_at:
+                continue   # bloqueado por el coordinador: solo se destraba vía ticket_suspend
+            old_status = ticket.status
+            status_changed = old_status != status
+            # ticket.assignments ya viene prefetched — filtrar en Python; la property
+            # executor_assignments haría .filter() y relanzaría una query por ticket.
+            ejec = [a for a in ticket.assignments.all() if a.kind == Assignment.Kind.EJECUTOR]
+            if status == Ticket.Status.BACKLOG and ejec:
+                continue   # "Necesidad" es la bandeja de tickets sin ejecutor (ver _visible_statuses)
+            ticket.position = index
+            if status_changed:
+                if status in _DRAG_STATUSES and ejec:
+                    # Sincroniza los subtickets de los ejecutores con la card arrastrada —
+                    # evita el desync ticket.status vs Assignment.status que dejaba, por
+                    # ejemplo, un ticket con ejecutores asignados cayendo en BACKLOG.
+                    for ea in ejec:
+                        ea.advance_to(status, now)
+                        if status == Ticket.Status.DONE:
+                            ea.closed_date = now
+                            if not ea.started_at:
+                                ea.started_at = ea.created
+                        ea.save()
+                    ticket.save(update_fields=['position', 'updated'])
+                    ticket.recompute_status()
+                else:
+                    ticket.status = status
+                    if status == Ticket.Status.DONE and ticket.closed_date is None:
+                        ticket.closed_date = timezone.now()
+                    elif status != Ticket.Status.DONE and ticket.closed_date is not None:
+                        ticket.closed_date = None
+                    ticket.save(update_fields=['status', 'position', 'closed_date', 'updated'])
+                _log(ticket, request.user, 'status', f'movió a «{ticket.get_status_display()}»')
+                if old_status == Ticket.Status.BACKLOG and ticket.status == Ticket.Status.TODO:
+                    _notify_backlog_to_todo(request.user, ticket)
             else:
-                ticket.status = status
-                if status == Ticket.Status.DONE and ticket.closed_date is None:
-                    ticket.closed_date = timezone.now()
-                elif status != Ticket.Status.DONE and ticket.closed_date is not None:
-                    ticket.closed_date = None
-                ticket.save(update_fields=['status', 'position', 'closed_date', 'updated'])
-            _log(ticket, request.user, 'status', f'movió a «{ticket.get_status_display()}»')
-            if old_status == Ticket.Status.BACKLOG and ticket.status == Ticket.Status.TODO:
-                _notify_backlog_to_todo(request.user, ticket)
-        else:
-            ticket.save(update_fields=['position', 'updated'])
+                ticket.save(update_fields=['position', 'updated'])
     return JsonResponse({'ok': True})
 
 
@@ -427,10 +457,16 @@ def _conclude_assignments(request, a, actor, conclusion=''):
     _log(a.ticket, actor, 'conclude',
          'concluyó su subticket' if a.ticket.has_subproducts else 'concluyó la tarea', assignment=a)
     a.ticket.recompute_status()
-    if a.ticket.reporter and a.ticket.reporter.pk != actor.pk:
-        verb = 'concluyó un subticket (pendiente de aprobación)' if a.ticket.has_subproducts \
-            else 'concluyó la tarea (pendiente de aprobación)'
-        notify(a.ticket.reporter, verb, actor=actor, ticket=a.ticket)
+    # Notifica al reporter Y a quienes pueden aprobar (tickets.close): si el reporter es
+    # el propio ejecutor (o está de baja), antes ningún coordinador se enteraba de que
+    # había algo por aprobar salvo mirando el dashboard.
+    verb = 'concluyó un subticket (pendiente de aprobación)' if a.ticket.has_subproducts \
+        else 'concluyó la tarea (pendiente de aprobación)'
+    recipients = {u.pk: u for u in users_with_capability('tickets.close')}
+    if a.ticket.reporter:
+        recipients.setdefault(a.ticket.reporter.pk, a.ticket.reporter)
+    for u in recipients.values():
+        notify(u, verb, actor=actor, ticket=a.ticket)   # notify() ya saltea al propio actor
     if conclusion.strip():
         prefix = 'Concluyó su subticket' if a.ticket.has_subproducts else 'Concluyó la tarea'
         comment = Comment.objects.create(ticket=a.ticket, author=actor, body=f'{prefix}: {conclusion.strip()}')
@@ -452,26 +488,34 @@ def assignment_move(request):
         return HttpResponseBadRequest('payload inválido')
     if status not in _DRAG_STATUSES:
         return HttpResponseBadRequest('estado no permitido')
-    a = get_object_or_404(Assignment, pk=aid, user=request.user, kind=Assignment.Kind.EJECUTOR)
-    if a.ticket.suspended_at:
-        return HttpResponseBadRequest('el ticket está suspendido por el coordinador')
-    if a.status != status:
-        if status == Ticket.Status.DONE:
-            _conclude_assignments(request, a, request.user)
-        else:
-            now = timezone.now()
-            if a.ticket.has_subproducts:
-                a.advance_to(status, now)
-                a.save()
-                _log(a.ticket, request.user, 'status',
-                     f'movió su subticket a «{a.get_status_display()}»', assignment=a)
+    if status == Ticket.Status.WAITING and not has_capability(request.user, 'tickets.view_waiting'):
+        # El Ejecutor no ve la columna Suspendido/Cancelado: aceptarle WAITING por POST
+        # directo mandaba la tarea (colaborativa: la de TODOS) a una columna que él no
+        # puede ver ni revertir — quedaba dependiendo del coordinador sin saberlo.
+        return HttpResponseBadRequest('estado no permitido')
+    with transaction.atomic():
+        a = get_object_or_404(Assignment, pk=aid, user=request.user, kind=Assignment.Kind.EJECUTOR)
+        a.ticket = _lock_ticket(a.ticket_id)
+        a.refresh_from_db()   # re-lee el estado ya bajo el lock (pudo cambiar en la espera)
+        if a.ticket.suspended_at:
+            return HttpResponseBadRequest('el ticket está suspendido por el coordinador')
+        if a.status != status:
+            if status == Ticket.Status.DONE:
+                _conclude_assignments(request, a, request.user)
             else:
-                # Colaborativa: el estado es compartido → sincroniza a todos los ejecutores.
-                for ea in a.ticket.executor_assignments:
-                    ea.advance_to(status, now)
-                    ea.save()
-                _log(a.ticket, request.user, 'status', f'movió la tarea a «{a.ticket.Status(status).label}»')
-            a.ticket.recompute_status()
+                now = timezone.now()
+                if a.ticket.has_subproducts:
+                    a.advance_to(status, now)
+                    a.save()
+                    _log(a.ticket, request.user, 'status',
+                         f'movió su subticket a «{a.get_status_display()}»', assignment=a)
+                else:
+                    # Colaborativa: el estado es compartido → sincroniza a todos los ejecutores.
+                    for ea in a.ticket.executor_assignments:
+                        ea.advance_to(status, now)
+                        ea.save()
+                    _log(a.ticket, request.user, 'status', f'movió la tarea a «{a.ticket.Status(status).label}»')
+                a.ticket.recompute_status()
     return JsonResponse({'ok': True, 'parent_status': a.ticket.status})
 
 
@@ -479,9 +523,12 @@ def assignment_move(request):
 @require_POST
 def assignment_conclude(request, pk):
     """Concluir el subticket propio (el texto de conclusión es opcional: descripción o link)."""
-    a = get_object_or_404(Assignment, pk=pk, user=request.user, kind=Assignment.Kind.EJECUTOR)
     conclusion = request.POST.get('conclusion', '').strip()
-    _conclude_assignments(request, a, request.user, conclusion)
+    with transaction.atomic():
+        a = get_object_or_404(Assignment, pk=pk, user=request.user, kind=Assignment.Kind.EJECUTOR)
+        a.ticket = _lock_ticket(a.ticket_id)
+        a.refresh_from_db()
+        _conclude_assignments(request, a, request.user, conclusion)
     msg = 'Subticket concluido. Pendiente de aprobación del coordinador.' if a.ticket.has_subproducts \
         else 'Tarea concluida. Pendiente de aprobación del coordinador.'
     messages.success(request, msg)
@@ -493,19 +540,56 @@ def assignment_conclude(request, pk):
 @require_POST
 def ticket_approve(request, pk):
     """El coordinador aprueba las conclusiones (subtickets DONE)."""
-    ticket = get_object_or_404(Ticket, pk=pk)
-    pending = ticket.executor_assignments.filter(status=Ticket.Status.DONE, approved_at__isnull=True)
-    approved = list(pending.select_related('user'))
-    if approved:
-        pending.update(approved_at=timezone.now())
-        _log(ticket, request.user, 'approve', 'aprobó la conclusión')
+    with transaction.atomic():
+        ticket = get_object_or_404(Ticket, pk=pk)
+        ticket = _lock_ticket(ticket.pk)
+        pending = ticket.executor_assignments.filter(status=Ticket.Status.DONE, approved_at__isnull=True)
+        approved = list(pending.select_related('user'))
+        if approved:
+            pending.update(approved_at=timezone.now())
+            _log(ticket, request.user, 'approve', 'aprobó la conclusión')
+            ticket.recompute_status()
+            for a in approved:
+                if a.user and a.user.pk != request.user.pk:
+                    notify(a.user, 'aprobó tu conclusión', actor=request.user, ticket=ticket)
+            messages.success(request, f'{ticket.key}: conclusión aprobada.')
+        else:
+            messages.info(request, 'No hay subtickets concluidos pendientes de aprobación.')
+    return redirect('tickets:detail', pk=ticket.pk)
+
+
+@login_required
+@require_capability('tickets.close')
+@require_POST
+def ticket_reject(request, pk):
+    """El coordinador devuelve las conclusiones pendientes a «En progreso» con feedback
+    obligatorio — la contraparte de ticket_approve. Sin esto, la única forma de devolver
+    trabajo mal concluido era arrastrar la card, sin registrar por qué ni avisar a nadie."""
+    feedback = request.POST.get('feedback', '').strip()
+    if not feedback:
+        messages.error(request, 'Indicá el motivo del rechazo: es lo que verá el ejecutor.')
+        return redirect('tickets:detail', pk=pk)
+    with transaction.atomic():
+        ticket = get_object_or_404(Ticket, pk=pk)
+        ticket = _lock_ticket(ticket.pk)
+        pending = list(ticket.executor_assignments.filter(
+            status=Ticket.Status.DONE, approved_at__isnull=True).select_related('user'))
+        if not pending:
+            messages.info(request, 'No hay conclusiones pendientes de aprobación para rechazar.')
+            return redirect('tickets:detail', pk=ticket.pk)
+        now = timezone.now()
+        for ea in pending:
+            ea.advance_to(Ticket.Status.IN_PROGRESS, now)   # salir de DONE limpia approved_at/closed_date
+            ea.save()
+        _log(ticket, request.user, 'reject', 'rechazó la conclusión')
         ticket.recompute_status()
-        for a in approved:
-            if a.user and a.user.pk != request.user.pk:
-                notify(a.user, 'aprobó tu conclusión', actor=request.user, ticket=ticket)
-        messages.success(request, f'{ticket.key}: conclusión aprobada.')
-    else:
-        messages.info(request, 'No hay subtickets concluidos pendientes de aprobación.')
+        comment = Comment.objects.create(
+            ticket=ticket, author=request.user, body=f'Rechazó la conclusión: {feedback}')
+    _notify_new_comment(request, ticket, comment)
+    for ea in pending:
+        if ea.user and ea.user.pk != request.user.pk:
+            notify(ea.user, 'rechazó tu conclusión', actor=request.user, ticket=ticket)
+    messages.success(request, f'{ticket.key}: conclusión rechazada — vuelve a «En progreso».')
     return redirect('tickets:detail', pk=ticket.pk)
 
 
@@ -516,27 +600,40 @@ def ticket_suspend(request, pk):
     """El coordinador suspende/cancela el ticket (o lo reactiva). Solo el coordinador puede
     tocar este candado — mientras `suspended_at` está seteado, los ejecutores no pueden
     mover su subticket (ver assignment_move)."""
-    ticket = get_object_or_404(Ticket, pk=pk)
-    now = timezone.now()
-    ejec = list(ticket.executor_assignments.filter(status=Ticket.Status.WAITING)) \
-        if ticket.status == Ticket.Status.WAITING else list(ticket.executor_assignments)
-    if ticket.status == Ticket.Status.WAITING:
-        for ea in ejec:
-            ea.advance_to(Ticket.Status.TODO, now)
-            ea.save()
-        ticket.suspended_at = None
-        ticket.save(update_fields=['suspended_at', 'updated'])
-        _log(ticket, request.user, 'status', 'reactivó el ticket')
-        messages.success(request, f'{ticket.key} reactivado.')
-    else:
-        for ea in ejec:
-            ea.advance_to(Ticket.Status.WAITING, now)
-            ea.save()
-        ticket.suspended_at = now
-        ticket.save(update_fields=['suspended_at', 'updated'])
-        _log(ticket, request.user, 'status', 'suspendió/canceló el ticket')
-        messages.success(request, f'{ticket.key} suspendido/cancelado.')
-    ticket.recompute_status()
+    with transaction.atomic():
+        ticket = get_object_or_404(Ticket, pk=pk)
+        ticket = _lock_ticket(ticket.pk)
+        now = timezone.now()
+        if ticket.status == Ticket.Status.WAITING:
+            # Reactivar: cada subticket vuelve al estado que tenía al suspender (no a TODO
+            # a ciegas — eso "renacía" trabajo en progreso e incluso concluido). Si no hay
+            # estado guardado (suspensión anterior a este campo, o el ejecutor ya estaba
+            # en Esperando por su cuenta), cae a TODO como antes.
+            for ea in ticket.executor_assignments.filter(status=Ticket.Status.WAITING):
+                restored = ea.status_before_suspend or Ticket.Status.TODO
+                ea.advance_to(restored, now)
+                ea.status_before_suspend = ''
+                ea.save()
+            ticket.suspended_at = None
+            ticket.save(update_fields=['suspended_at', 'updated'])
+            _log(ticket, request.user, 'status', 'reactivó el ticket')
+            for u in _ticket_people(ticket):
+                notify(u, 'reactivó el ticket', actor=request.user, ticket=ticket)
+            messages.success(request, f'{ticket.key} reactivado.')
+        else:
+            # Suspender: los subtickets ya concluidos (DONE) no se tocan — pisarlos borraría
+            # la conclusión/aprobación y al reactivar el trabajo terminado volvería a TODO.
+            for ea in ticket.executor_assignments.exclude(status=Ticket.Status.DONE):
+                ea.status_before_suspend = ea.status
+                ea.advance_to(Ticket.Status.WAITING, now)
+                ea.save()
+            ticket.suspended_at = now
+            ticket.save(update_fields=['suspended_at', 'updated'])
+            _log(ticket, request.user, 'status', 'suspendió/canceló el ticket')
+            for u in _ticket_people(ticket):
+                notify(u, 'suspendió/canceló el ticket', actor=request.user, ticket=ticket)
+            messages.success(request, f'{ticket.key} suspendido/cancelado.')
+        ticket.recompute_status()
     return redirect('tickets:detail', pk=ticket.pk)
 
 
@@ -764,19 +861,32 @@ def attachment_thumb(request, pk):
 
 # ── Crear / editar ────────────────────────────────────────────────────────────
 
-def _sync_assignments(ticket, executor_users, expert_users, status=Ticket.Status.TODO):
-    """Sincroniza los Assignment del ticket con las selecciones. Devuelve los usuarios nuevos.
+def _sync_assignments(ticket, executor_users, expert_users, status=Ticket.Status.TODO, recompute=True):
+    """Sincroniza los Assignment del ticket con las selecciones. Devuelve
+    `(usuarios_nuevos, assignments_conservados, usuarios_removidos)` — los conservados
+    son asignaciones desmarcadas que NO se borraron por tener trabajo registrado.
     `status` es el estado inicial de los Assignment nuevos (por defecto TODO; subdivide lo
     pisa para que el hijo nazca — y se mantenga, tras el recompute_status() de abajo — en el
-    mismo estado que el padre)."""
+    mismo estado que el padre). `recompute=False` deja el status del ticket (y de los
+    Assignment nuevos, vía `status`) tal cual quedaron — lo usa la creación para que un
+    ticket recién creado por el coordinador quede siempre en «Necesidad», aunque ya se
+    hayan marcado ejecutores/expertos en el mismo formulario."""
     desired = {}
     for u in expert_users:
         desired[u.pk] = Assignment.Kind.EXPERTO
     for u in executor_users:
         desired[u.pk] = Assignment.Kind.EJECUTOR   # si está en ambos, gana ejecutor
-    existing = {a.user_id: a for a in ticket.assignments.all()}
+    existing = {a.user_id: a for a in ticket.assignments.select_related('user')}
+    kept, removed = [], []
     for uid, a in existing.items():
         if uid not in desired:
+            if a.is_executor and (a.started_at or a.status == Ticket.Status.DONE):
+                # Con trabajo empezado o concluido, borrar el Assignment destruiría
+                # tiempos, conclusión y aprobación de forma irreversible. Se conserva
+                # la asignación; el caller avisa al usuario (ver ticket_edit).
+                kept.append(a)
+                continue
+            removed.append(a.user)
             a.delete()
     added = []
     for uid, kind in desired.items():
@@ -787,9 +897,10 @@ def _sync_assignments(ticket, executor_users, expert_users, status=Ticket.Status
         elif a.kind != kind:
             a.kind = kind
             a.save(update_fields=['kind'])
-    ticket.recompute_status()
+    if recompute:
+        ticket.recompute_status()
     broadcast_board(ticket.pk)   # blindaje: por si algún caller futuro no pasa por _log
-    return list(User.objects.filter(pk__in=added))
+    return list(User.objects.filter(pk__in=added)), kept, removed
 
 
 @login_required
@@ -805,8 +916,14 @@ def ticket_create(request):
             form.save_m2m()
             _log(ticket, request.user, 'created', 'creó el ticket')
             if can_assign:
-                added = _sync_assignments(ticket, form.cleaned_data.get('executors', []),
-                                          form.cleaned_data.get('experts', []))
+                # Un ticket recién creado siempre queda en «Necesidad», aunque ya se hayan
+                # marcado ejecutores/expertos acá mismo — recompute=False evita que
+                # _sync_assignments lo salte a «Por hacer» (eso pasa recién en una edición
+                # posterior). Los Assignment nuevos nacen en BACKLOG para que, si el ticket
+                # tiene subproductos, sus cards no aparezcan igual en «Por hacer».
+                added, _kept, _removed = _sync_assignments(ticket, form.cleaned_data.get('executors', []),
+                                                           form.cleaned_data.get('experts', []),
+                                                           status=Ticket.Status.BACKLOG, recompute=False)
                 _notify_assignment(request, ticket, added)
             messages.success(request, f'{ticket.key} creado.')
             return redirect('tickets:detail', pk=ticket.pk)
@@ -825,20 +942,33 @@ def ticket_edit(request, pk):
     if request.method == 'POST':
         form = TicketForm(request.POST, instance=ticket, can_assign=can_assign)
         if form.is_valid():
-            obj = form.save()
-            if obj.priority != old['priority']:
-                _log(obj, request.user, 'priority', f'cambió la prioridad a «{obj.get_priority_display()}»')
-            if obj.due_date != old['due_date']:
-                d = obj.due_date.strftime('%d/%m/%Y') if obj.due_date else 'sin fecha'
-                _log(obj, request.user, 'due', f'cambió el vencimiento a {d}')
-            if can_assign:
-                added = _sync_assignments(obj, form.cleaned_data.get('executors', []),
-                                          form.cleaned_data.get('experts', []))
-                if added:
-                    _log(obj, request.user, 'assignee', 'actualizó las asignaciones')
-                    _notify_assignment(request, obj, added)
-                if old['status'] == Ticket.Status.BACKLOG and obj.status == Ticket.Status.TODO:
-                    _notify_backlog_to_todo(request.user, obj)
+            with transaction.atomic():
+                _lock_ticket(ticket.pk)
+                obj = form.save()
+                if obj.priority != old['priority']:
+                    _log(obj, request.user, 'priority', f'cambió la prioridad a «{obj.get_priority_display()}»')
+                if obj.due_date != old['due_date']:
+                    d = obj.due_date.strftime('%d/%m/%Y') if obj.due_date else 'sin fecha'
+                    _log(obj, request.user, 'due', f'cambió el vencimiento a {d}')
+                kept = []
+                if can_assign:
+                    added, kept, removed = _sync_assignments(obj, form.cleaned_data.get('executors', []),
+                                                             form.cleaned_data.get('experts', []))
+                    if added or removed:
+                        _log(obj, request.user, 'assignee', 'actualizó las asignaciones')
+                        _notify_assignment(request, obj, added)
+                    for u in removed:
+                        notify(u, 'te desasignó del ticket', actor=request.user, ticket=obj)
+                    if old['status'] == Ticket.Status.BACKLOG and obj.status == Ticket.Status.TODO:
+                        _notify_backlog_to_todo(request.user, obj)
+            if kept:
+                names = ', '.join(_user_display(a.user) for a in kept)
+                messages.warning(
+                    request,
+                    f'No se desasignó a {names}: su subticket tiene trabajo registrado '
+                    f'(tiempos/conclusión). Si corresponde quitarlo igual, primero '
+                    f'resolvé o reasigná ese trabajo.',
+                )
             messages.success(request, f'{ticket.key} actualizado.')
             return redirect('tickets:detail', pk=ticket.pk)
     else:
@@ -867,6 +997,10 @@ def _spawn_child(request, parent, *, title_suffix):
         project=parent.project,
         reporter=request.user,
         status=parent.status,
+        # Hereda el candado del coordinador: sin esto, el hijo de un ticket suspendido
+        # nacía en la columna Suspendido/Cancelado pero SIN suspended_at — la card se
+        # veía bloqueada igual que el padre pero cualquier ejecutor podía moverla.
+        suspended_at=parent.suspended_at,
     )
     child.labels.set(parent.labels.all())
     executor_users = [a.user for a in parent.executor_assignments]
@@ -879,7 +1013,7 @@ def _spawn_child(request, parent, *, title_suffix):
     # no permite que esto ocurra, pero se mantiene como defensa en profundidad ante otras
     # vías de mutación futuras.
     child_assignment_status = parent.status if parent.status in _DRAG_STATUSES else Ticket.Status.TODO
-    added = _sync_assignments(child, executor_users, expert_users, status=child_assignment_status)
+    added, _kept, _removed = _sync_assignments(child, executor_users, expert_users, status=child_assignment_status)
     _notify_assignment(request, child, added)
     return child
 
@@ -888,9 +1022,11 @@ def _spawn_child(request, parent, *, title_suffix):
 @require_capability('tickets.create')
 def ticket_derive(request, pk):
     """Desprende una subtarea subordinada: el padre sigue activo en el tablero."""
-    parent = get_object_or_404(Ticket, pk=pk)
-    child = _spawn_child(request, parent, title_suffix='(derivado)')
-    _log(child, request.user, 'created', f'derivado de {parent.key}')
+    with transaction.atomic():
+        parent = get_object_or_404(Ticket, pk=pk)
+        parent = _lock_ticket(parent.pk)
+        child = _spawn_child(request, parent, title_suffix='(derivado)')
+        _log(child, request.user, 'created', f'derivado de {parent.key}')
     messages.success(request, f'{child.key} creado (deriva de {parent.key}). Completá los datos.')
     return redirect('tickets:edit', pk=child.pk)
 
@@ -900,13 +1036,15 @@ def ticket_derive(request, pk):
 def ticket_divide(request, pk):
     """Descompone el ticket en partes hermanas (-1, -2…): el original pasa a ser un
     contenedor oculto del tablero — deja de ser una card activa, solo se ven las partes."""
-    parent = get_object_or_404(Ticket, pk=pk)
-    child = _spawn_child(request, parent, title_suffix='(parte)')
-    if not parent.is_split:
-        parent.split_at = timezone.now()
-        parent.save(update_fields=['split_at', 'updated'])
-        _log(parent, request.user, 'split', 'dividido en partes')
-    _log(child, request.user, 'created', f'parte de {parent.key}')
+    with transaction.atomic():
+        parent = get_object_or_404(Ticket, pk=pk)
+        parent = _lock_ticket(parent.pk)
+        child = _spawn_child(request, parent, title_suffix='(parte)')
+        if not parent.is_split:
+            parent.split_at = timezone.now()
+            parent.save(update_fields=['split_at', 'updated'])
+            _log(parent, request.user, 'split', 'dividido en partes')
+        _log(child, request.user, 'created', f'parte de {parent.key}')
     messages.success(request, f'{child.key} creado (parte de {parent.key}). Completá los datos.')
     return redirect('tickets:edit', pk=child.pk)
 
@@ -931,7 +1069,9 @@ def ticket_archive(request, pk):
 @require_POST
 def ticket_unarchive(request, pk):
     ticket = get_object_or_404(Ticket, pk=pk)
-    if not request.user.is_superuser:
+    # Capacidad propia (por defecto solo Coordinador) en vez de is_superuser hardcodeado
+    # — archivar seguía el sistema de capacidades y desarchivar no, asimetría sin razón.
+    if not has_capability(request.user, 'tickets.unarchive'):
         raise PermissionDenied
     ticket.archived_at = None
     ticket.save(update_fields=['archived_at', 'updated'])
@@ -947,7 +1087,8 @@ def archived(request):
     ).order_by('-archived_at')
     page_obj = Paginator(qs, 30).get_page(request.GET.get('page'))
     return render(request, 'tickets/archived.html', {
-        'page_obj': page_obj, 'is_superuser': request.user.is_superuser,
+        'page_obj': page_obj,
+        'can_unarchive': has_capability(request.user, 'tickets.unarchive'),
     })
 
 
@@ -1019,10 +1160,10 @@ def labels_manage(request):
             color = request.POST.get('color', Label.Color.NEUTRAL)
             if name and color in dict(Label.Color.choices):
                 Label.objects.get_or_create(name=name, defaults={'color': color})
-                messages.success(request, f'Etiqueta «{name}» creada.')
+                messages.success(request, f'Actividad «{name}» creada.')
         elif action == 'delete':
             Label.objects.filter(pk=request.POST.get('id')).delete()
-            messages.success(request, 'Etiqueta eliminada.')
+            messages.success(request, 'Actividad eliminada.')
         return redirect('tickets:labels')
     return render(request, 'tickets/labels.html', {
         'labels': Label.objects.all(), 'colors': Label.Color.choices,
@@ -1067,6 +1208,9 @@ def seguimiento(request):
     last = Comment.objects.filter(ticket=OuterRef('pk')).order_by('-created')
     qs = (
         Ticket.objects.select_related('reporter', 'project')
+        # Archivados y contenedores divididos ya no son actionables — sin este filtro
+        # quedaban listados en Seguimiento para siempre.
+        .filter(archived_at__isnull=True, split_at__isnull=True)
         .exclude(status=Ticket.Status.BACKLOG)
         .annotate(
             last_body=Subquery(last.values('body')[:1]),
@@ -1111,6 +1255,7 @@ def dashboard(request):
     pending_approval = (
         Assignment.objects.filter(
             kind=Assignment.Kind.EJECUTOR, status=Ticket.Status.DONE, approved_at__isnull=True,
+            ticket__archived_at__isnull=True, ticket__split_at__isnull=True,
         ).values('ticket_id').distinct().count()
     )
     done_30d = active.filter(
@@ -1148,7 +1293,10 @@ def dashboard(request):
                       or r['user__email'] or r['user__username']),
             'count': r['n'], 'color': 'neutral',
         }
-        for r in Assignment.objects.filter(kind=Assignment.Kind.EJECUTOR)
+        for r in Assignment.objects.filter(
+            kind=Assignment.Kind.EJECUTOR,
+            ticket__archived_at__isnull=True, ticket__split_at__isnull=True,
+        )
         .exclude(ticket__status=Ticket.Status.DONE)
         .values('user__email', 'user__username', 'user__first_name', 'user__last_name')
         .annotate(n=Count('ticket', distinct=True)).order_by('-n')[:8]
