@@ -1,0 +1,32 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="min-h-screen flex items-center justify-center bg-base-200 px-4 py-10">
+  <div class="w-full max-w-md">
+    <div class="text-center mb-6">
+      <h1 class="text-2xl font-black text-primary tracking-tight">SkyDesk Tickets</h1>
+      <p class="text-sm text-base-content/50 mt-1">{% block auth_subtitle %}{% endblock %}</p>
+    </div>
+
+    {% if messages %}
+      <div class="space-y-2 mb-4">
+        {% for message in messages %}
+          <div class="alert {% if message.tags == 'error' %}alert-error{% elif message.tags == 'success' %}alert-success{% elif message.tags == 'warning' %}alert-warning{% else %}alert-info{% endif %} text-sm py-2">
+            <span>{{ message }}</span>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    <div class="card bg-base-100 rounded-2xl border border-base-300">
+      <div class="card-body p-6 sm:p-8">
+        {% block auth_content %}{% endblock %}
+      </div>
+    </div>
+
+    <div class="text-center mt-4 text-sm text-base-content/50">
+      {% block auth_footer %}{% endblock %}
+    </div>
+  </div>
+</div>
+{% endblock %}

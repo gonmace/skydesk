@@ -42,8 +42,9 @@ chmod -R o+rX /app/staticfiles
 echo 'Ejecutando migraciones...'
 python manage.py migrate
 
-echo 'Iniciando Gunicorn...'
-exec gunicorn core.wsgi:application \
+echo 'Iniciando Gunicorn (ASGI, worker uvicorn — sirve HTTP + WebSocket para tiempo real)...'
+exec gunicorn core.asgi:application \
+    -k uvicorn.workers.UvicornWorker \
     --bind 0.0.0.0:8000 \
     --workers 3 \
     --access-logfile - \

@@ -21,7 +21,15 @@ ADMIN_URL = config('ADMIN_URL', default='admin/')
 # Application definition
 
 INSTALLED_APPS = [
+    # 'daphne' primero: requisito de Django Channels para que `runserver` sirva ASGI/WS.
+    'daphne',
+    'channels',
+
     'home',
+    'accounts',
+    'tickets',
+    'attachments',
+    'notifications',
     'axes',
 
     'django.contrib.admin',
@@ -51,7 +59,10 @@ TAILWIND_APP_NAME = 'theme'
 
 if DEBUG:
     INSTALLED_APPS += ['django_browser_reload']
-    MIDDLEWARE += ['django_browser_reload.middleware.BrowserReloadMiddleware']
+    MIDDLEWARE += [
+        'django_browser_reload.middleware.BrowserReloadMiddleware',
+        'accounts.middleware.DevImpersonationMiddleware',
+    ]
     INTERNAL_IPS = ['127.0.0.1', '::1']
     import sys
     if sys.platform == 'win32':
@@ -59,8 +70,18 @@ if DEBUG:
 
 AUTHENTICATION_BACKENDS = [
     'axes.backends.AxesStandaloneBackend',
+    'accounts.backends.EmailBackend',
     'django.contrib.auth.backends.ModelBackend',
 ]
+
+# ── Login / sesión ────────────────────────────────────────────────────────────
+LOGIN_URL = 'accounts:login'
+LOGIN_REDIRECT_URL = 'tickets:board'
+LOGOUT_REDIRECT_URL = 'accounts:login'
+
+# Sesión persistente ("seguir logueado"); el form de login la acorta si no marcan "Recordarme".
+SESSION_EXPIRE_AT_BROWSER_CLOSE = False
+SESSION_COOKIE_AGE = config('SESSION_COOKIE_AGE', default=60 * 60 * 24 * 30, cast=int)  # 30 días
 
 ROOT_URLCONF = 'core.urls'
 
@@ -75,12 +96,15 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'accounts.context_processors.nav_flags',
+                'notifications.context_processors.notifications',
             ],
         },
     },
 ]
 
 WSGI_APPLICATION = 'core.wsgi.application'
+ASGI_APPLICATION = 'core.asgi.application'
 
 # Database: SQLite por defecto en dev, PostgreSQL si se define POSTGRES_DB
 if config('POSTGRES_DB', default=''):
@@ -147,6 +171,41 @@ if config('EMAIL_HOST', default=''):
 else:
     EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 
+DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='SkyDesk Tickets <noreply@example.com>')
+
+# ── Adjuntos (almacenamiento intercambiable) ─────────────────────────────────
+# Hoy TODOS los adjuntos van a Nextcloud; la abstracción permite migrar a S3/CDN a futuro.
+ATTACHMENT_DEFAULT_BACKEND = config('ATTACHMENT_DEFAULT_BACKEND', default='nextcloud')
+ATTACHMENT_MAX_SIZE = config('ATTACHMENT_MAX_SIZE', default=20 * 1024 * 1024, cast=int)  # 20 MB
+ATTACHMENT_ALLOWED_TYPES = (
+    'image/', 'application/pdf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.ms-powerpoint',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'text/plain', 'text/csv',
+)
+ATTACHMENT_BACKENDS = {
+    'nextcloud': {
+        'BACKEND': 'attachments.backends.nextcloud.NextcloudBackend',
+        'OPTIONS': {
+            # URL base WebDAV, ej. https://nube.dominio/remote.php/dav/files/<usuario>
+            'base_url': config('NEXTCLOUD_URL', default=''),
+            'user': config('NEXTCLOUD_USER', default=''),
+            'token': config('NEXTCLOUD_TOKEN', default=''),  # app-password de Nextcloud
+            'root': config('NEXTCLOUD_ROOT', default='SkyDesk-Tickets'),
+        },
+    },
+    # Disco local bajo media/ — usado por `manage.py seed_demo` para adjuntos de prueba
+    # sin depender de Nextcloud. No es el backend por defecto (ATTACHMENT_DEFAULT_BACKEND).
+    'local': {
+        'BACKEND': 'attachments.backends.local.LocalDiskBackend',
+        'OPTIONS': {},
+    },
+}
+
 # ── Seguridad ──────────────────────────────────────────────────────────────────
 CSRF_COOKIE_SECURE = not DEBUG
 SESSION_COOKIE_SECURE = not DEBUG
@@ -179,6 +238,22 @@ CACHES = {
 SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
 SESSION_CACHE_ALIAS = 'default'
 
+# ── Channels (tiempo real, WebSockets) ─────────────────────────────────────────
+# Reusa el mismo Redis de cache/sesiones (prefijos de clave propios, sin colisión).
+# En tests se pisa por InMemoryChannelLayer (ver tickets/tests_realtime.py).
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels_redis.core.RedisChannelLayer',
+        'CONFIG': {
+            # redis-py 8.0 puso socket_timeout=5s por defecto, igual al BZPOPMIN
+            # bloqueante (brpop_timeout=5) de channels_redis -> el read del socket
+            # expiraba en cada conexión inactiva y tiraba el WebSocket. Se le da
+            # margen al socket para que nunca compita con el timeout del bloqueo.
+            'hosts': [{'address': REDIS_URL, 'socket_timeout': 30}],
+        },
+    }
+}
+
 # ── django-axes (protección brute force) ──────────────────────────────────────
 AXES_FAILURE_LIMIT = 5
 AXES_COOLOFF_TIME = 1  # hora
@@ -193,13 +268,27 @@ else:
     AXES_HANDLER = 'axes.handlers.cache.AxesCacheHandler'
     AXES_CACHE = 'default'
 
-# ── Content Security Policy ───────────────────────────────────────────────────
-CSP_DEFAULT_SRC = ("'self'",)
-CSP_SCRIPT_SRC = ("'self'",)
-CSP_STYLE_SRC = ("'self'",)
-CSP_IMG_SRC = ("'self'", "data:")
-CSP_FONT_SRC = ("'self'",)
-CSP_CONNECT_SRC = ("'self'",) if not DEBUG else ("'self'", "ws://localhost:*", "ws://127.0.0.1:*")
+# ── Content Security Policy (django-csp 4.x) ─────────────────────────────────
+# API nueva: un único dict CONTENT_SECURITY_POLICY. Sin inline JS/CSS (todo externo).
+from csp.constants import SELF  # noqa: E402
+
+if DEBUG:
+    _WS_SOURCES = ['ws://localhost:*', 'ws://127.0.0.1:*']
+else:
+    # wss:// del/de los host(s) real(es) — sin esto el handshake del WebSocket (tiempo
+    # real, ver tickets/consumers.py) queda bloqueado por CSP en producción.
+    _WS_SOURCES = [f'wss://{h}' for h in ALLOWED_HOSTS if h and h not in ('localhost', '127.0.0.1')]
+
+CONTENT_SECURITY_POLICY = {
+    'DIRECTIVES': {
+        'default-src': [SELF],
+        'script-src': [SELF],
+        'style-src': [SELF],
+        'img-src': [SELF, 'data:'],
+        'font-src': [SELF],
+        'connect-src': [SELF] + _WS_SOURCES,
+    },
+}
 
 # ── Integración n8n (opcional) ───────────────────────────────────────────────
 N8N_URL = config('N8N_URL', default='')

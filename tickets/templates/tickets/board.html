@@ -1,0 +1,24 @@
+{% extends 'tickets/base_app.html' %}
+{% load static %}
+{% block title %}Tablero{% endblock %}
+
+{% block app_content %}
+{% include 'tickets/partials/_filters.html' %}
+
+<div class="flex gap-4 overflow-x-auto lg:overflow-x-visible pb-4 snap-x snap-mandatory sm:snap-none scroll-px-3 -mx-3 px-3 sm:mx-0 sm:px-0"
+     data-kanban
+     data-mode="{{ board_mode }}"
+     data-move-url="{% url 'tickets:move' %}"
+     data-assignment-move-url="{% url 'tickets:assignment_move' %}"
+     data-fragment-url="{% url 'tickets:board_fragment' %}"
+     data-can-move="{{ can_move|yesno:'1,0' }}">
+  {% include 'tickets/partials/_board_columns.html' %}
+</div>
+{% endblock %}
+
+{% block app_scripts %}
+  <script src="{% static 'js/sortable.min.js' %}" defer></script>
+  <script src="{% static 'js/kanban.js' %}" defer></script>
+  <script src="{% static 'js/board-search.js' %}" defer></script>
+  <script src="{% static 'js/subdivide-highlight.js' %}" defer></script>
+{% endblock %}

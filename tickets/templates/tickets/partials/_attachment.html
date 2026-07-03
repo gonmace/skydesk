@@ -1,0 +1,27 @@
+<div class="inline-flex items-center gap-1">
+  {% if a.has_thumbnail %}
+    <a href="{% url 'tickets:attachment_serve' a.pk %}" target="_blank" rel="noopener" class="block relative" title="{{ a.filename }}">
+      <img src="{% url 'tickets:attachment_thumb' a.pk %}" alt="{{ a.filename }}"
+           class="w-20 h-20 object-cover rounded-lg border border-base-300 bg-base-200">
+      {% if a.is_pdf %}<span class="absolute bottom-1 left-1 text-[9px] font-bold px-1 rounded bg-error text-white">PDF</span>{% endif %}
+    </a>
+  {% else %}
+    <a href="{% url 'tickets:attachment_serve' a.pk %}" target="_blank" rel="noopener"
+       class="inline-flex items-center gap-2 bg-base-200 rounded-lg px-2.5 py-2 text-xs hover:bg-base-300 max-w-full">
+      <span class="inline-flex items-center justify-center w-8 h-8 rounded shrink-0
+        {% if a.ext == 'doc' or a.ext == 'docx' %}bg-info/15 text-info{% elif a.ext == 'xls' or a.ext == 'xlsx' or a.ext == 'csv' %}bg-success/15 text-success{% elif a.ext == 'ppt' or a.ext == 'pptx' %}bg-warning/15 text-warning{% else %}bg-base-300 text-base-content/60{% endif %}">
+        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>
+      </span>
+      <span class="min-w-0">
+        <span class="block truncate">{{ a.filename }}</span>
+        {% if a.ext %}<span class="block text-[10px] uppercase text-base-content/40">{{ a.ext }}</span>{% endif %}
+      </span>
+    </a>
+  {% endif %}
+  {% if can_write_chat %}
+    <form method="post" action="{% url 'tickets:attachment_delete' a.pk %}" data-confirm="¿Borrar el adjunto «{{ a.filename }}»?">
+      {% csrf_token %}
+      <button class="text-error text-xs hover:opacity-70" title="Borrar adjunto">✕</button>
+    </form>
+  {% endif %}
+</div>

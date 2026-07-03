@@ -1,0 +1,19 @@
+<form method="get" data-board-filters class="bg-base-100 rounded-2xl border border-base-300 p-3 mb-4 flex flex-wrap items-center gap-2">
+  <input type="search" name="q" value="{{ filters.q }}" placeholder="Buscar (título, código, solicitante…)"
+         autocomplete="off" class="input input-bordered input-sm w-full sm:w-72">
+  <select name="assignee" class="select select-bordered select-sm">
+    <option value="">Asignado: todos</option>
+    {% for u in filters.users %}
+      <option value="{{ u.pk }}" {% if filters.assignee == u.pk|stringformat:'s' %}selected{% endif %}>{{ u.get_full_name|default:u.email|default:u.username }}</option>
+    {% endfor %}
+  </select>
+  {% if filters.projects %}
+    <select name="project" class="select select-bordered select-sm">
+      <option value="">Proyecto: todos</option>
+      {% for p in filters.projects %}
+        <option value="{{ p.pk }}" {% if filters.project == p.pk|stringformat:'s' %}selected{% endif %}>{{ p.code }} · {{ p.name }}</option>
+      {% endfor %}
+    </select>
+  {% endif %}
+  <a href="{{ request.path }}" class="btn btn-ghost btn-sm" data-board-clear>Limpiar</a>
+</form>

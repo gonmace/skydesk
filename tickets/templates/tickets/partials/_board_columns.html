@@ -1,0 +1,23 @@
+{% for col in columns %}
+  <div class="shrink-0 w-[85vw] sm:w-72 lg:w-auto lg:flex-1 lg:min-w-0 snap-start">
+    <div class="flex items-center justify-between mb-2 px-1">
+      <div class="flex items-center gap-2">
+        <span class="w-2 h-2 rounded-full
+          {% if col.value == 'BACKLOG' %}bg-base-content border border-base-100/25{% elif col.value == 'TODO' %}bg-info{% elif col.value == 'IN_PROGRESS' %}bg-warning{% elif col.value == 'DONE' %}bg-success{% else %}bg-error{% endif %}"></span>
+        <h2 class="text-sm font-bold">{{ col.label }}</h2>
+      </div>
+      <span class="badge badge-ghost badge-sm">{{ col.count }}</span>
+    </div>
+    <div class="kanban-col space-y-3 min-h-16 rounded-2xl p-1" data-status="{{ col.value }}">
+      {% for item in col.items %}
+        {% if item.type == 'merged' %}
+          {% include 'tickets/partials/_subticket_merged_card.html' with ticket=item.ticket group=item.group link_color=item.link_color is_locked=item.is_locked my_assignment=item.my_assignment is_readonly=item.is_readonly %}
+        {% elif item.type == 'subticket' %}
+          {% include 'tickets/partials/_subticket_card.html' with a=item.a %}
+        {% else %}
+          {% include 'tickets/partials/ticket_card.html' with t=item.t %}
+        {% endif %}
+      {% endfor %}
+    </div>
+  </div>
+{% endfor %}

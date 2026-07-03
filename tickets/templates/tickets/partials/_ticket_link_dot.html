@@ -1,0 +1,6 @@
+{% if link_color != None %}
+  <span class="inline-grid *:[grid-area:1/1] shrink-0" title="{{ t.key }} tiene más de un ejecutor — el punto marca las cards del mismo ticket">
+    <span class="status status-lg ticket-link-dot animate-ping" data-link-color="{{ link_color }}"></span>
+    <span class="status status-lg ticket-link-dot" data-link-color="{{ link_color }}"></span>
+  </span>
+{% endif %}

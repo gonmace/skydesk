@@ -1,0 +1,72 @@
+{% extends 'tickets/base_app.html' %}
+{% block title %}Proyectos{% endblock %}
+
+{% block app_content %}
+<div class="mb-4">
+  <h1 class="text-2xl font-black tracking-tight">Proyectos</h1>
+  <p class="text-sm text-base-content/50">Definí proyectos y vinculá tickets a ellos.</p>
+</div>
+
+<div class="space-y-5 max-w-4xl">
+  <section class="bg-base-100 rounded-2xl border border-base-300 p-5">
+    <h2 class="text-sm font-bold mb-3">Nuevo proyecto</h2>
+    <form method="post" class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="add">
+      {{ form.name }}
+      {{ form.code }}
+      {{ form.city }}
+      {{ form.status }}
+      <div class="sm:col-span-2">{{ form.description }}</div>
+      <div class="sm:col-span-2 flex justify-end"><button class="btn btn-success btn-sm">Crear proyecto</button></div>
+    </form>
+  </section>
+
+  <section class="bg-base-100 rounded-2xl border border-base-300 p-5">
+    <h2 class="text-sm font-bold mb-3">Existentes</h2>
+    <div class="space-y-3">
+      {% for p in projects %}
+        <div class="border border-base-200 rounded-xl p-3">
+          <form method="post" class="flex flex-wrap items-end gap-2">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="edit">
+            <input type="hidden" name="id" value="{{ p.pk }}">
+            <div class="flex-1 min-w-32">
+              <label class="text-xs text-base-content/50">Nombre</label>
+              <input name="name" value="{{ p.name }}" class="input input-bordered input-sm w-full">
+            </div>
+            <div class="w-full sm:w-24">
+              <label class="text-xs text-base-content/50">Código</label>
+              <input name="code" value="{{ p.code }}" class="input input-bordered input-sm w-full">
+            </div>
+            <div class="w-full sm:w-36">
+              <label class="text-xs text-base-content/50">Ciudad</label>
+              <input name="city" value="{{ p.city }}" class="input input-bordered input-sm w-full">
+            </div>
+            <div class="w-full sm:w-32">
+              <label class="text-xs text-base-content/50">Estado</label>
+              <select name="status" class="select select-bordered select-sm w-full">
+                {% for sv, sl in statuses %}<option value="{{ sv }}" {% if p.status == sv %}selected{% endif %}>{{ sl }}</option>{% endfor %}
+              </select>
+            </div>
+            <button class="btn btn-success btn-sm w-full sm:w-auto">Guardar</button>
+          </form>
+          <div class="flex items-center gap-3 mt-2">
+            <span class="badge badge-outline badge-xs
+              {% if p.status == 'ACTIVE' %}badge-success{% elif p.status == 'PAUSED' %}badge-warning{% else %}badge-neutral{% endif %}">{{ p.get_status_display }}</span>
+            <span class="text-xs text-base-content/40">{{ p.num_tickets }} ticket{{ p.num_tickets|pluralize }}</span>
+            <form method="post" data-confirm="¿Eliminar el proyecto {{ p.code }}? Los tickets quedarán sin proyecto.">
+              {% csrf_token %}
+              <input type="hidden" name="action" value="delete">
+              <input type="hidden" name="id" value="{{ p.pk }}">
+              <button class="text-xs text-error hover:underline">Eliminar</button>
+            </form>
+          </div>
+        </div>
+      {% empty %}
+        <p class="text-sm text-base-content/40">Sin proyectos todavía.</p>
+      {% endfor %}
+    </div>
+  </section>
+</div>
+{% endblock %}

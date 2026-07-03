@@ -1,0 +1,36 @@
+{% extends 'tickets/base_app.html' %}
+{% block title %}Notificaciones{% endblock %}
+
+{% block app_content %}
+<div class="flex items-center justify-between mb-4">
+  <div>
+    <h1 class="text-2xl font-black tracking-tight">Notificaciones</h1>
+    <p class="text-sm text-base-content/50">Tu actividad reciente.</p>
+  </div>
+  <form method="post" action="{% url 'notifications:mark_all_read' %}">
+    {% csrf_token %}
+    <button class="btn btn-ghost btn-sm">Marcar todas como leídas</button>
+  </form>
+</div>
+
+<div class="bg-base-100 rounded-2xl border border-base-300 overflow-hidden">
+  <div class="divide-y divide-base-200">
+    {% for n in page_obj %}
+      <a href="{% url 'notifications:open' n.pk %}"
+         class="flex items-start gap-3 px-4 py-3 hover:bg-base-200/50 transition-colors {% if not n.is_read %}bg-primary/5{% endif %}">
+        {% if not n.is_read %}<span class="w-2 h-2 rounded-full bg-primary mt-1.5 shrink-0"></span>{% else %}<span class="w-2 h-2 mt-1.5 shrink-0"></span>{% endif %}
+        <div class="min-w-0 flex-1">
+          <p class="text-sm {% if not n.is_read %}font-semibold{% endif %}">
+            {% if n.actor %}<span class="font-medium">{{ n.actor.get_full_name|default:n.actor.email|default:n.actor.username }}</span> {% endif %}{{ n.verb }}
+            {% if n.ticket %}<span class="font-mono text-xs text-accent">{{ n.ticket.key }}</span>{% endif %}
+          </p>
+        </div>
+        <span class="text-xs text-base-content/40 shrink-0">{{ n.created|date:"d/m H:i" }}</span>
+      </a>
+    {% empty %}
+      <div class="p-10 text-center text-base-content/40">No tenés notificaciones.</div>
+    {% endfor %}
+  </div>
+</div>
+{% include 'tickets/partials/_pagination.html' %}
+{% endblock %}

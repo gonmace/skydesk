@@ -1,0 +1,37 @@
+<div class="flex gap-2">
+  {% if c.author %}{% include 'tickets/partials/_avatar.html' with u=c.author size='w-9 h-9' %}{% else %}
+    <div class="avatar-role w-9 h-9 rounded-full flex items-center justify-center shrink-0"><span class="text-[11px] font-bold">—</span></div>
+  {% endif %}
+  <div class="flex-1 min-w-0">
+    <div class="flex items-center gap-2">
+      <span class="text-sm font-semibold">{{ c.author.get_full_name|default:c.author.email|default:c.author.username|default:"—" }}</span>
+      <span class="text-xs text-base-content/40">{{ c.created|date:"d/m/Y H:i" }}</span>
+    </div>
+    {% if c.body %}
+      <div class="mt-1 bg-base-200 rounded-2xl rounded-tl-sm px-3 py-2 text-sm whitespace-pre-wrap break-words">{{ c.body }}</div>
+    {% endif %}
+    {% with atts=c.attachments.all %}
+      {% if atts %}
+        <div class="flex flex-wrap gap-2 mt-2">
+          {% for a in atts %}{% include 'tickets/partials/_attachment.html' %}{% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+    {% if c.author_id == request.user.id or can_moderate_chat %}
+      <div class="flex items-center gap-3 mt-1">
+        <details class="text-xs">
+          <summary class="cursor-pointer text-base-content/40 hover:text-base-content list-none">editar</summary>
+          <form method="post" action="{% url 'tickets:comment_edit' c.pk %}" class="mt-1 flex gap-1">
+            {% csrf_token %}
+            <input type="text" name="body" value="{{ c.body }}" class="input input-bordered input-xs flex-1">
+            <button class="btn btn-success btn-xs">Guardar</button>
+          </form>
+        </details>
+        <form method="post" action="{% url 'tickets:comment_delete' c.pk %}" data-confirm="¿Borrar este mensaje?">
+          {% csrf_token %}
+          <button class="text-xs text-error hover:underline">borrar</button>
+        </form>
+      </div>
+    {% endif %}
+  </div>
+</div>

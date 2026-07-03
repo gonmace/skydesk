@@ -1,0 +1,127 @@
+{% extends 'tickets/base_app.html' %}
+{% load static %}
+{% block title %}{% if creating %}Nuevo ticket{% else %}Editar {{ ticket.key }}{% endif %}{% endblock %}
+
+{% block app_content %}
+<div class="max-w-3xl mx-auto">
+  <h1 class="text-2xl font-black tracking-tight mb-4">
+    {% if creating %}Nuevo ticket{% else %}Editar <span class="font-mono text-accent">{{ ticket.key }}</span>{% endif %}
+  </h1>
+
+  <form method="post" class="space-y-5">
+    {% csrf_token %}
+    {% if form.non_field_errors %}
+      <div class="alert alert-error text-sm py-2"><span>{{ form.non_field_errors.0 }}</span></div>
+    {% endif %}
+
+    {# ── Datos principales ─────────────────────────────────────────── #}
+    <div class="bg-base-100 rounded-2xl border border-base-300 p-6 space-y-4">
+      <div>
+        <label class="label" for="{{ form.title.id_for_label }}"><span class="label-text font-medium">Título</span></label>
+        {{ form.title }}
+        {% for e in form.title.errors %}<p class="text-error text-xs mt-1">{{ e }}</p>{% endfor %}
+      </div>
+      <div>
+        <label class="label" for="{{ form.solicitante.id_for_label }}"><span class="label-text font-medium">Solicitante</span></label>
+        {{ form.solicitante }}
+        {% for e in form.solicitante.errors %}<p class="text-error text-xs mt-1">{{ e }}</p>{% endfor %}
+      </div>
+      <div>
+        <label class="label" for="{{ form.description.id_for_label }}"><span class="label-text font-medium">Descripción</span></label>
+        {{ form.description }}
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div>
+          <label class="label" for="{{ form.project.id_for_label }}"><span class="label-text font-medium">Proyecto</span></label>
+          {{ form.project }}
+        </div>
+        <div>
+          <label class="label" for="{{ form.priority.id_for_label }}"><span class="label-text font-medium">Prioridad</span></label>
+          {{ form.priority }}
+        </div>
+        <div>
+          <label class="label" for="{{ form.due_date.id_for_label }}"><span class="label-text font-medium">Vence</span></label>
+          {{ form.due_date }}
+        </div>
+      </div>
+      {% if form.labels.field.queryset %}
+        <div>
+          <label class="label"><span class="label-text font-medium">Etiquetas</span></label>
+          <div class="flex flex-wrap gap-3">
+            {% for opt in form.labels %}
+              <label class="inline-flex items-center gap-2 cursor-pointer">{{ opt.tag }}<span class="text-sm">{{ opt.choice_label }}</span></label>
+            {% endfor %}
+          </div>
+        </div>
+      {% endif %}
+    </div>
+
+    {# ── Asignación ────────────────────────────────────────────────── #}
+    {% if form.executors %}
+      <div class="bg-base-100 rounded-2xl border border-base-300 p-6 space-y-4">
+        <div class="flex items-center justify-between gap-4">
+          <h2 class="text-sm font-bold">Asignación</h2>
+          <label class="flex items-center gap-2 cursor-pointer">
+            <span class="text-sm">Tiene subproductos</span>
+            {{ form.has_subproducts }}
+          </label>
+        </div>
+        <p class="text-xs text-base-content/50 -mt-2">{{ form.has_subproducts.help_text }}</p>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {# Ejecutores #}
+          <div data-multiselect>
+            <div class="flex items-baseline justify-between">
+              <label class="label"><span class="label-text font-medium">Ejecutores <span class="text-base-content/40">(R)</span></span></label>
+              <span class="text-xs text-base-content/40" data-multiselect-count>ninguno</span>
+            </div>
+            <input type="search" data-multiselect-search placeholder="Buscar ejecutor…" autocomplete="off"
+                   class="input input-bordered input-sm w-full mb-2">
+            <div class="border border-base-300 rounded-xl p-1.5 max-h-52 overflow-y-auto">
+              {% for opt in form.executors %}
+                <label data-multiselect-item data-label="{{ opt.choice_label }}"
+                       class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-base-200 cursor-pointer">
+                  {{ opt.tag }}<span class="text-sm truncate">{{ opt.choice_label }}</span>
+                </label>
+              {% empty %}
+                <p class="text-xs text-base-content/40 p-2">No hay ejecutores registrados.</p>
+              {% endfor %}
+            </div>
+            <p class="text-xs text-base-content/40 mt-1">{{ form.executors.help_text }}</p>
+          </div>
+
+          {# Expertos #}
+          <div data-multiselect>
+            <div class="flex items-baseline justify-between">
+              <label class="label"><span class="label-text font-medium">Expertos <span class="text-base-content/40">(C)</span></span></label>
+              <span class="text-xs text-base-content/40" data-multiselect-count>ninguno</span>
+            </div>
+            <input type="search" data-multiselect-search placeholder="Buscar experto…" autocomplete="off"
+                   class="input input-bordered input-sm w-full mb-2">
+            <div class="border border-base-300 rounded-xl p-1.5 max-h-52 overflow-y-auto">
+              {% for opt in form.experts %}
+                <label data-multiselect-item data-label="{{ opt.choice_label }}"
+                       class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-base-200 cursor-pointer">
+                  {{ opt.tag }}<span class="text-sm truncate">{{ opt.choice_label }}</span>
+                </label>
+              {% empty %}
+                <p class="text-xs text-base-content/40 p-2">No hay expertos registrados.</p>
+              {% endfor %}
+            </div>
+            <p class="text-xs text-base-content/40 mt-1">{{ form.experts.help_text }}</p>
+          </div>
+        </div>
+      </div>
+    {% endif %}
+
+    <div class="flex gap-2 justify-end">
+      <a href="{% if creating %}{% url 'tickets:board' %}{% else %}{% url 'tickets:detail' ticket.pk %}{% endif %}" class="btn btn-ghost btn-sm">Cancelar</a>
+      <button class="btn btn-success btn-sm">Guardar</button>
+    </div>
+  </form>
+</div>
+{% endblock %}
+
+{% block app_scripts %}
+  <script src="{% static 'js/multiselect-filter.js' %}" defer></script>
+{% endblock %}

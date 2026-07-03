@@ -1,0 +1,82 @@
+{% extends 'tickets/base_app.html' %}
+{% block title %}Seguimiento{% endblock %}
+
+{% block app_content %}
+<div class="mb-4">
+  <h1 class="text-2xl font-black tracking-tight">Seguimiento</h1>
+  <p class="text-sm text-base-content/50">Monitoreo del último mensaje de cada tarea.</p>
+</div>
+
+{% if page_obj.object_list %}
+  <div class="flex flex-wrap items-center gap-3 mb-3 text-xs text-base-content/50">
+    <span class="font-semibold text-base-content/70 tabular-nums">{{ page_obj.paginator.count }} ticket{{ page_obj.paginator.count|pluralize }}</span>
+    <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-info"></span>Por hacer</span>
+    <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-warning"></span>En progreso</span>
+    <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-success"></span>Concluido</span>
+    <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-error"></span>Suspendido/Cancelado</span>
+  </div>
+  <div class="bg-base-100 rounded-2xl border border-base-300 overflow-hidden">
+    <div class="divide-y divide-base-300">
+      {% for t in page_obj %}
+        <a href="{% url 'tickets:detail' t.pk %}" title="Estado: {{ t.get_status_display }}" class="flex items-start gap-3 pl-3 pr-4 py-3 border-l-4 hover:bg-base-200/50 transition-colors
+          {% if t.status == 'TODO' %}border-l-info{% elif t.status == 'IN_PROGRESS' %}border-l-warning{% elif t.status == 'DONE' %}border-l-success{% else %}border-l-error{% endif %}">
+          <div class="flex flex-col items-start gap-1 shrink-0 w-20 pt-0.5">
+            <span class="font-mono text-xs text-accent font-semibold">{{ t.key }}</span>
+            <span class="prio-bars" data-priority="{{ t.priority }}"
+                  title="Prioridad: {{ t.get_priority_display }}" aria-label="Prioridad: {{ t.get_priority_display }}">
+              <i></i><i></i><i></i><i></i>
+            </span>
+          </div>
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="text-sm font-semibold truncate">{{ t.title }}</span>
+              {% if t.project %}<span class="text-[10px] font-semibold text-base-content/50" title="{{ t.project.name }}">{{ t.project.code }}</span>{% endif %}
+            </div>
+            {% if t.last_body is not None %}
+              <div class="mt-1 space-y-1">
+                <div class="flex items-start gap-1.5 bg-warning/10 border border-warning/20 rounded-lg px-2 py-1">
+                  <span class="text-xs font-semibold text-base-content shrink-0">
+                    {% if t.last_author_first or t.last_author_last %}{{ t.last_author_first }} {{ t.last_author_last }}{% else %}{{ t.last_author_email|default:"—" }}{% endif %}:
+                  </span>
+                  <span class="text-xs text-base-content/90 truncate">{{ t.last_body|default:"(adjunto)"|truncatechars:90 }}</span>
+                </div>
+                {% if t.prev_body is not None %}
+                  <div class="flex items-start gap-1.5 px-2">
+                    <span class="text-xs text-base-content/50 shrink-0">
+                      {% if t.prev_author_first or t.prev_author_last %}{{ t.prev_author_first }} {{ t.prev_author_last }}{% else %}{{ t.prev_author_email|default:"—" }}{% endif %}:
+                    </span>
+                    <span class="text-xs text-base-content/40 truncate">{{ t.prev_body|default:"(adjunto)"|truncatechars:90 }}</span>
+                  </div>
+                {% endif %}
+              </div>
+            {% else %}
+              <p class="text-xs text-base-content/40 mt-0.5">Sin mensajes</p>
+            {% endif %}
+            {% with labels=t.labels.all %}
+              {% if labels %}
+                <div class="flex flex-wrap gap-1 mt-1">
+                  {% for l in labels %}<span class="label-chip" data-color="{{ l.color }}">{{ l.name }}</span>{% endfor %}
+                </div>
+              {% endif %}
+            {% endwith %}
+          </div>
+          <div class="flex flex-col items-end gap-1 shrink-0 text-xs text-base-content/50">
+            {% if t.due_date %}
+              <span class="font-semibold {% if t.is_overdue %}text-error{% else %}text-base-content/80{% endif %}">
+                {% if t.is_overdue %}Venció{% else %}Vence{% endif %}: {{ t.due_date|date:"d/m" }}
+              </span>
+            {% endif %}
+            {% if t.last_at %}<span>{{ t.last_at|date:"d/m H:i" }}</span>{% endif %}
+            <span class="text-base-content/40 text-[11px] italic">Modificado {{ t.updated|date:"d/m H:i" }}</span>
+          </div>
+        </a>
+      {% endfor %}
+    </div>
+  </div>
+  {% include 'tickets/partials/_pagination.html' %}
+{% else %}
+  <div class="bg-base-100 rounded-2xl border border-base-300 p-10 text-center text-base-content/40">
+    No hay tickets.
+  </div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,11 @@
+Hola,
+
+Tu acceso a SkyDesk Tickets fue habilitado.
+
+Para activar tu cuenta y crear tu contraseña, abrí este enlace:
+
+{{ link }}
+
+Si no esperabas este correo, podés ignorarlo.
+
+— SkyDesk Tickets

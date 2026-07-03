@@ -18,7 +18,9 @@ urlpatterns = [
         content_type='text/plain',
         extra_context={'ADMIN_URL': settings.ADMIN_URL},
     )),
-    path('', include('home.urls')),
+    path('acceso/', include('accounts.urls')),
+    path('notificaciones/', include('notifications.urls')),
+    path('', include('tickets.urls')),
 ]
 
 if settings.DEBUG:

@@ -1,0 +1,77 @@
+{% extends 'tickets/base_app.html' %}
+{% block title %}Mis tickets{% endblock %}
+
+{% block app_content %}
+{% if page_obj.object_list %}
+  <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
+    <div class="flex flex-wrap items-center gap-3 text-xs text-base-content/50">
+      <span class="font-semibold text-base-content/70 tabular-nums">{{ page_obj.paginator.count }} ticket{{ page_obj.paginator.count|pluralize }}</span>
+      <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-info"></span>Por hacer</span>
+      <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-warning"></span>En progreso</span>
+      <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-success"></span>Concluido</span>
+      <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-error"></span>Suspendido/Cancelado</span>
+    </div>
+    <div class="flex items-center gap-1 text-xs text-base-content/50">
+      Ordenar:
+      <a href="{% querystring sort='vence' page=None %}" class="btn btn-ghost btn-xs {% if sort == 'vence' %}btn-active{% endif %}">Vence</a>
+      <a href="{% querystring sort='prioridad' page=None %}" class="btn btn-ghost btn-xs {% if sort == 'prioridad' %}btn-active{% endif %}">Prioridad</a>
+      <a href="{% querystring sort='actividad' page=None %}" class="btn btn-ghost btn-xs {% if sort == 'actividad' %}btn-active{% endif %}">Actividad</a>
+      <a href="{% querystring sort='modificado' page=None %}" class="btn btn-ghost btn-xs {% if sort == 'modificado' %}btn-active{% endif %}">Modificado</a>
+    </div>
+  </div>
+  <div class="bg-base-100 rounded-2xl border border-base-300 overflow-hidden">
+    <div class="divide-y divide-base-300">
+      {% for t in page_obj %}
+        <a href="{% url 'tickets:detail' t.pk %}" title="Estado: {{ t.display_status_label }}" class="flex items-start gap-3 pl-3 pr-4 py-3 border-l-4 hover:bg-base-200/50 transition-colors
+          {% if t.display_status == 'BACKLOG' %}border-l-base-content/30{% elif t.display_status == 'TODO' %}border-l-info{% elif t.display_status == 'IN_PROGRESS' %}border-l-warning{% elif t.display_status == 'DONE' %}border-l-success{% else %}border-l-error{% endif %}">
+          <div class="flex flex-col items-start gap-1 shrink-0 w-20 pt-0.5">
+            <span class="font-mono text-xs text-accent font-semibold">{{ t.key }}</span>
+            <span class="prio-bars" data-priority="{{ t.priority }}"
+                  title="Prioridad: {{ t.get_priority_display }}" aria-label="Prioridad: {{ t.get_priority_display }}">
+              <i></i><i></i><i></i><i></i>
+            </span>
+          </div>
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="text-sm font-semibold truncate">{{ t.title }}</span>
+              {% if t.pending_approval %}<span class="badge badge-success badge-xs" title="Concluiste, falta la aprobación del coordinador">Pendiente de aprobación</span>{% endif %}
+              {% if t.project %}<span class="text-[10px] font-semibold text-base-content/50" title="{{ t.project.name }}">{{ t.project.code }}</span>{% endif %}
+            </div>
+            {% if t.last_body is not None %}
+              <p class="text-xs text-base-content/70 truncate mt-0.5">
+                <span class="font-semibold text-base-content/90">
+                  {% if t.last_author_first or t.last_author_last %}{{ t.last_author_first }} {{ t.last_author_last }}{% else %}{{ t.last_author_email|default:"—" }}{% endif %}:
+                </span>
+                {{ t.last_body|default:"(adjunto)"|truncatechars:80 }}
+              </p>
+            {% else %}
+              <p class="text-xs text-base-content/40 mt-0.5">Sin mensajes</p>
+            {% endif %}
+            {% with labels=t.labels.all %}
+              {% if labels %}
+                <div class="flex flex-wrap gap-1 mt-1">
+                  {% for l in labels %}<span class="label-chip" data-color="{{ l.color }}">{{ l.name }}</span>{% endfor %}
+                </div>
+              {% endif %}
+            {% endwith %}
+          </div>
+          <div class="flex flex-col items-end gap-1 shrink-0 text-xs text-base-content/50">
+            {% if t.due_date %}
+              <span class="font-semibold {% if t.is_overdue %}text-error{% else %}text-base-content/80{% endif %}">
+                {% if t.is_overdue %}Venció{% else %}Vence{% endif %}: {{ t.due_date|date:"d/m" }}
+              </span>
+            {% endif %}
+            {% if t.my_in_progress %}<span>En progreso: {{ t.my_in_progress }}</span>{% endif %}
+            <span class="text-base-content/40 text-[11px] italic">Modificado {{ t.updated|date:"d/m H:i" }}</span>
+          </div>
+        </a>
+      {% endfor %}
+    </div>
+  </div>
+  {% include 'tickets/partials/_pagination.html' %}
+{% else %}
+  <div class="bg-base-100 rounded-2xl border border-base-300 p-10 text-center text-base-content/40">
+    No tenés tickets asignados abiertos.
+  </div>
+{% endif %}
+{% endblock %}

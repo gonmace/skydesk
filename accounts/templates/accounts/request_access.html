@@ -1,0 +1,24 @@
+{% extends 'accounts/_auth_base.html' %}
+{% block title %}Solicitar acceso{% endblock %}
+{% block auth_subtitle %}Ingresá tu correo para empezar{% endblock %}
+
+{% block auth_content %}
+<form method="post" class="space-y-4" novalidate>
+  {% csrf_token %}
+  <p class="text-sm text-base-content/60">
+    Si tu correo está habilitado, te enviaremos un enlace para crear tu contraseña y activar la cuenta.
+  </p>
+  <div>
+    <label class="label" for="{{ form.email.id_for_label }}">
+      <span class="label-text font-medium">{{ form.email.label }}</span>
+    </label>
+    {{ form.email }}
+    {% for e in form.email.errors %}<p class="text-error text-xs mt-1">{{ e }}</p>{% endfor %}
+  </div>
+  <button type="submit" class="btn btn-success w-full">Enviar enlace</button>
+</form>
+{% endblock %}
+
+{% block auth_footer %}
+¿Ya tenés cuenta? <a href="{% url 'accounts:login' %}" class="text-primary hover:underline">Iniciá sesión</a>
+{% endblock %}

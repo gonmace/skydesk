@@ -1,0 +1,18 @@
+{% comment %}
+  Fila de barra horizontal para los gráficos simples del dashboard (por estado, prioridad,
+  asignado, proyecto). La barra es SVG inline, no CSS con ancho dinámico: la CSP del
+  proyecto no permite estilos inline (core/settings.py, style-src: [SELF]) y un ancho
+  arbitrario tipo `w-[{{ pct }}%]` tampoco lo detectaría el escaneo estático de Tailwind.
+  Espera `row`: {label, count, pct, color} — color ∈ info|warning|success|error|ghost|neutral.
+{% endcomment %}
+<div class="flex items-center gap-2 text-sm">
+  <span class="w-28 sm:w-36 truncate shrink-0" title="{{ row.label }}">{{ row.label }}</span>
+  <svg class="flex-1 h-2 rounded-full" viewBox="0 0 100 8" preserveAspectRatio="none"
+       role="img" aria-label="{{ row.label }}: {{ row.count }}">
+    <rect width="100" height="8" rx="4" class="text-base-200" fill="currentColor"></rect>
+    <rect width="{{ row.pct }}" height="8" rx="4"
+          class="{% if row.color == 'info' %}text-info{% elif row.color == 'warning' %}text-warning{% elif row.color == 'success' %}text-success{% elif row.color == 'error' %}text-error{% elif row.color == 'ghost' %}text-base-content/25{% else %}text-base-content/50{% endif %}"
+          fill="currentColor"></rect>
+  </svg>
+  <span class="w-8 text-right font-bold tabular-nums shrink-0">{{ row.count }}</span>
+</div>

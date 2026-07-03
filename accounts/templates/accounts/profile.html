@@ -1,0 +1,29 @@
+{% extends 'tickets/base_app.html' %}
+{% block title %}Mi perfil{% endblock %}
+
+{% block app_content %}
+<div class="max-w-lg">
+  <h1 class="text-2xl font-black tracking-tight mb-1">Mi perfil</h1>
+  <p class="text-sm text-base-content/50 mb-4">{{ request.user.email }}</p>
+
+  <form method="post" class="bg-base-100 rounded-2xl border border-base-300 p-6 space-y-4">
+    {% csrf_token %}
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div>
+        <label class="label" for="{{ form.first_name.id_for_label }}"><span class="label-text font-medium">Nombre</span></label>
+        {{ form.first_name }}
+        {% for e in form.first_name.errors %}<p class="text-error text-xs mt-1">{{ e }}</p>{% endfor %}
+      </div>
+      <div>
+        <label class="label" for="{{ form.last_name.id_for_label }}"><span class="label-text font-medium">Apellido</span></label>
+        {{ form.last_name }}
+        {% for e in form.last_name.errors %}<p class="text-error text-xs mt-1">{{ e }}</p>{% endfor %}
+      </div>
+    </div>
+    <div class="flex items-center justify-between pt-2">
+      <a href="{% url 'accounts:password_reset' %}" class="text-sm text-primary hover:underline">Cambiar contraseña</a>
+      <button class="btn btn-success btn-sm">Guardar</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

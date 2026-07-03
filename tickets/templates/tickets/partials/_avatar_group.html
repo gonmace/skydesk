@@ -1,0 +1,17 @@
+{% load static %}
+{% comment %}
+  Stack de avatares con contador cuando son más de 4 (mismo patrón que
+  https://daisyui.com/components/avatar/#avatar-group-with-counter, adaptado a nuestro
+  avatar de iniciales). Espera: assignments (queryset/lista con .user), size (opcional).
+{% endcomment %}
+<div class="avatar-stack flex -space-x-2 shrink-0">
+  {% for a in assignments|slice:":4" %}
+    {% include 'tickets/partials/_avatar.html' with u=a.user size=size|default:'w-7 h-7' %}
+  {% endfor %}
+  {% if assignments|length > 4 %}
+    <div class="avatar-user {{ size|default:'w-7 h-7' }} rounded-full flex items-center justify-center shrink-0 bg-neutral text-neutral-content"
+         title="{{ assignments|length|add:'-4' }} más">
+      <span class="text-[10px] font-bold">+{{ assignments|length|add:'-4' }}</span>
+    </div>
+  {% endif %}
+</div>

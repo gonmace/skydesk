@@ -1,0 +1,21 @@
+{% if t.num_children %}
+  <a href="{% url 'tickets:detail' t.pk %}"
+     data-highlight-children="{% for ch in t.children.all %}{{ ch.pk }}{% if not forloop.last %},{% endif %}{% endfor %}"
+     class="shrink-0 text-base-content hover:opacity-70" title="Derivado en {{ t.num_children }} subticket{{ t.num_children|pluralize }}">
+    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4L8.12 15.88M14.47 14.48L20 20M8.12 8.12L12 12"/></svg>
+  </a>
+{% endif %}
+{% if t.parent_id %}
+  <a href="{% url 'tickets:detail' t.parent_id %}" class="shrink-0 text-base-content hover:opacity-70" title="{% if t.parent.is_split %}Parte de otro ticket{% else %}Deriva de otro ticket{% endif %}">
+    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+  </a>
+{% endif %}
+{% if t.has_subproducts %}
+  <span class="text-base-content shrink-0" title="Cada ejecutor tiene su subticket independiente">
+    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+  </span>
+{% endif %}
+<span class="prio-bars shrink-0" data-priority="{{ t.priority }}"
+      title="Prioridad: {{ t.get_priority_display }}" aria-label="Prioridad: {{ t.get_priority_display }}">
+  <i></i><i></i><i></i><i></i>
+</span>

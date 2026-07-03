@@ -1,0 +1,86 @@
+{% extends 'tickets/base_app.html' %}
+{% block title %}Dashboard{% endblock %}
+
+{% block app_content %}
+<div class="mb-5">
+  <h1 class="text-2xl font-black tracking-tight">Dashboard</h1>
+  <p class="text-sm text-base-content/50">Resumen de métricas de tickets.</p>
+</div>
+
+<!-- KPIs principales -->
+<div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-5">
+  {% for kpi in kpis %}
+    <div class="bg-base-100 rounded-2xl border border-base-300 p-4">
+      <div class="flex items-center gap-1.5">
+        <span class="w-2 h-2 rounded-full shrink-0
+          {% if kpi.color == 'info' %}bg-info{% elif kpi.color == 'warning' %}bg-warning{% elif kpi.color == 'error' %}bg-error{% elif kpi.color == 'success' %}bg-success{% else %}bg-base-content/40{% endif %}"></span>
+        <p class="text-[10px] font-semibold uppercase tracking-widest text-base-content/40 truncate">{{ kpi.label }}</p>
+      </div>
+      <p class="text-3xl font-black mt-1 leading-none
+        {% if kpi.color == 'info' %}text-info{% elif kpi.color == 'warning' %}text-warning{% elif kpi.color == 'error' %}text-error{% elif kpi.color == 'success' %}text-success{% endif %}">
+        {{ kpi.count }}
+      </p>
+    </div>
+  {% endfor %}
+</div>
+
+<!-- Tiempos medios -->
+<div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
+  {% for tm in time_metrics %}
+    <div class="bg-base-100 rounded-2xl border border-base-300 p-4 text-center">
+      <p class="text-[10px] font-semibold uppercase tracking-widest text-base-content/40">{{ tm.label }}</p>
+      <p class="text-xl font-black mt-1 leading-none">{{ tm.value|default:"—" }}</p>
+    </div>
+  {% endfor %}
+</div>
+
+<!-- Throughput -->
+<section class="bg-base-100 rounded-2xl border border-base-300 p-5 mb-5">
+  <h2 class="text-sm font-bold mb-3">Concluidos por semana (últimas 8)</h2>
+  <svg viewBox="0 0 100 46" preserveAspectRatio="none" class="w-full h-28 text-primary"
+       role="img" aria-label="Tickets concluidos por semana, últimas 8 semanas">
+    {% for w in throughput %}
+      <rect x="{{ w.x }}" y="{{ w.y }}" width="{{ w.w }}" height="{{ w.height }}" rx="1.5"
+            class="{% if w.count %}text-primary{% else %}text-base-200{% endif %}" fill="currentColor">
+        <title>{{ w.label }}: {{ w.count }}</title>
+      </rect>
+    {% endfor %}
+  </svg>
+  <div class="flex text-[10px] text-base-content/40 mt-1">
+    {% for w in throughput %}<span class="flex-1 text-center">{{ w.label }}</span>{% endfor %}
+  </div>
+</section>
+
+<!-- Desgloses -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+  <section class="bg-base-100 rounded-2xl border border-base-300 p-5">
+    <h2 class="text-sm font-bold mb-3">Por estado</h2>
+    <div class="space-y-2">
+      {% for row in status_rows %}{% include 'tickets/partials/_bar_row.html' %}{% endfor %}
+    </div>
+  </section>
+
+  <section class="bg-base-100 rounded-2xl border border-base-300 p-5">
+    <h2 class="text-sm font-bold mb-3">Por prioridad (abiertos)</h2>
+    <div class="space-y-2">
+      {% for row in priority_rows %}{% include 'tickets/partials/_bar_row.html' %}{% endfor %}
+    </div>
+  </section>
+
+  <section class="bg-base-100 rounded-2xl border border-base-300 p-5">
+    <h2 class="text-sm font-bold mb-3">Carga por asignado (abiertos)</h2>
+    <div class="space-y-2">
+      {% for row in by_assignee %}{% include 'tickets/partials/_bar_row.html' %}
+      {% empty %}<p class="text-sm text-base-content/40">Sin tickets asignados.</p>{% endfor %}
+    </div>
+  </section>
+
+  <section class="bg-base-100 rounded-2xl border border-base-300 p-5">
+    <h2 class="text-sm font-bold mb-3">Por proyecto (abiertos)</h2>
+    <div class="space-y-2">
+      {% for row in by_project %}{% include 'tickets/partials/_bar_row.html' %}
+      {% empty %}<p class="text-sm text-base-content/40">Sin tickets asignados a un proyecto.</p>{% endfor %}
+    </div>
+  </section>
+</div>
+{% endblock %}

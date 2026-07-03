@@ -1,0 +1,10 @@
+from django.apps import AppConfig
+
+
+class AttachmentsConfig(AppConfig):
+    default_auto_field = 'django.db.models.BigAutoField'
+    name = 'attachments'
+    verbose_name = 'Adjuntos'
+
+    def ready(self):
+        from . import signals  # noqa: F401

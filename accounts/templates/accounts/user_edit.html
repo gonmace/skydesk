@@ -1,0 +1,87 @@
+{% extends 'tickets/base_app.html' %}
+{% block title %}Editar cuenta{% endblock %}
+
+{% block app_content %}
+<div class="max-w-lg">
+  <div class="mb-4">
+    <a href="{% url 'accounts:access_admin' %}" class="text-sm text-base-content/50 hover:text-base-content">← Volver a Cuentas</a>
+  </div>
+  <h1 class="text-2xl font-black tracking-tight mb-1">Editar cuenta</h1>
+  <p class="text-sm text-base-content/50 mb-4">{{ target.email }}{% if target.is_superuser %} · superuser{% endif %}</p>
+
+  <form method="post" class="bg-base-100 rounded-2xl border border-base-300 p-6 space-y-4">
+    {% csrf_token %}
+    {% if form.non_field_errors %}<div class="alert alert-error text-sm py-2"><span>{{ form.non_field_errors.0 }}</span></div>{% endif %}
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div>
+        <label class="label" for="{{ form.first_name.id_for_label }}"><span class="label-text font-medium">Nombre</span></label>
+        {{ form.first_name }}
+        {% for e in form.first_name.errors %}<p class="text-error text-xs mt-1">{{ e }}</p>{% endfor %}
+      </div>
+      <div>
+        <label class="label" for="{{ form.last_name.id_for_label }}"><span class="label-text font-medium">Apellido</span></label>
+        {{ form.last_name }}
+        {% for e in form.last_name.errors %}<p class="text-error text-xs mt-1">{{ e }}</p>{% endfor %}
+      </div>
+    </div>
+    <div>
+      <label class="label" for="{{ form.role.id_for_label }}"><span class="label-text font-medium">Rol</span></label>
+      {{ form.role }}
+      {% for e in form.role.errors %}<p class="text-error text-xs mt-1">{{ e }}</p>{% endfor %}
+    </div>
+    <div class="flex gap-2 justify-end pt-2">
+      <a href="{% url 'accounts:access_admin' %}" class="btn btn-ghost btn-sm">Cancelar</a>
+      <button class="btn btn-success btn-sm">Guardar</button>
+    </div>
+  </form>
+
+  {% if show_overrides %}
+    <div class="bg-base-100 rounded-2xl border border-base-300 p-6 mt-4">
+      <div class="mb-3">
+        <h2 class="font-bold">Configuración específica de esta cuenta</h2>
+        <p class="text-xs text-base-content/50">
+          Pisa el default del rol solo para {{ target.email|default:target.username }}. El resto de
+          las cuentas con el mismo rol no se ve afectado.
+          {% if has_overrides %}<span class="text-warning font-medium">Tiene overrides activos.</span>{% endif %}
+        </p>
+      </div>
+      <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="save_permissions">
+        <div class="divide-y divide-base-200">
+          {% for row in permission_rows %}
+            <div class="flex items-center justify-between gap-3 py-2">
+              <div class="min-w-0">
+                <div class="text-sm font-medium">{{ row.label }}</div>
+                <div class="text-xs font-mono text-base-content/40">{{ row.key }}</div>
+              </div>
+              <div class="flex items-center gap-2 shrink-0">
+                <span class="text-xs text-base-content/40">
+                  {% if row.is_overridden %}override{% else %}hereda: {% if row.role_default %}activado{% else %}desactivado{% endif %}{% endif %}
+                </span>
+                <label class="inline-flex items-center cursor-pointer align-middle">
+                  <input type="checkbox" name="{{ row.key }}" class="sr-only peer" {% if row.enabled %}checked{% endif %}>
+                  <span class="relative w-9 h-5 rounded-full bg-base-300 transition-colors peer-checked:bg-success
+                               after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:h-4 after:w-4
+                               after:rounded-full after:bg-white after:shadow after:transition-transform
+                               peer-checked:after:translate-x-4"></span>
+                </label>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+        <div class="flex gap-2 justify-end pt-3">
+          <button class="btn btn-success btn-sm">Guardar permisos personalizados</button>
+        </div>
+      </form>
+      {% if has_overrides %}
+        <form method="post" class="mt-2" data-confirm="¿Quitar todos los overrides y volver al default del rol?">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="reset_permissions">
+          <button class="btn btn-ghost btn-xs w-full">Restablecer al default del rol</button>
+        </form>
+      {% endif %}
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

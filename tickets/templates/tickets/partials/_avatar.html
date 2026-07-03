@@ -1,0 +1,7 @@
+{% load avatar_tags %}
+{# Avatar de iniciales con color pastel estable por usuario. Espera: u (User), size (clases de tamaño, opcional), muted (opcional: gris, para roles secundarios como Expertos) #}
+<div class="avatar-user {{ size|default:'w-7 h-7' }} rounded-full flex items-center justify-center shrink-0{% if muted %} grayscale{% endif %}"
+     data-avatar-color="{{ u|avatar_color }}"
+     title="{{ u.get_full_name|default:u.email|default:u.username }}{% if u.profile.role %} · {{ u.profile.get_role_display }}{% endif %}">
+  <span class="text-[11px] font-bold uppercase">{% if u.first_name or u.last_name %}{{ u.first_name|slice:':1' }}{{ u.last_name|slice:':1' }}{% else %}{{ u.email|default:u.username|slice:':2' }}{% endif %}</span>
+</div>

@@ -87,6 +87,16 @@ python manage.py tailwind start
 python manage.py runserver
 ```
 
+### Probar con datos y roles distintos
+
+```bash
+python manage.py seed_demo   # usuarios (los 4 roles) + tickets de demo
+```
+
+Ver [TESTING-ROLES.md](TESTING-ROLES.md) para credenciales, cómo tener varios roles logueados
+en paralelo y el impersonador dev (solo superuser + `DEBUG=True`) para navegar como un
+usuario real sin cerrar tu sesión.
+
 ### Comportamiento automático según `.env`
 
 | Variable | Ausente | Presente |

@@ -1,0 +1,171 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block extra_head %}
+  <meta name="csrf-token" content="{{ csrf_token }}">
+{% endblock %}
+
+{% block content %}
+<div class="min-h-screen bg-base-200 app-shell">
+  <header class="bg-base-100 border-b border-base-300 sticky top-0 z-30">
+    <div class="container mx-auto max-w-[1600px] px-3 sm:px-6">
+      <div class="flex items-center h-14 gap-2">
+        <a href="{% url 'tickets:board' %}" class="font-black text-primary tracking-tight text-lg mr-2">SkyDesk</a>
+
+        <nav class="hidden sm:flex items-center gap-1 flex-1 min-w-0 overflow-x-auto">
+          {% url 'tickets:board' as u_board %}
+          {% url 'tickets:my_tickets' as u_mine %}
+          <a href="{{ u_board }}" class="shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-sm font-semibold {% if request.path == u_board %}bg-primary/10 text-primary{% else %}text-base-content/50 hover:text-base-content hover:bg-base-200{% endif %}">Tablero</a>
+          <a href="{{ u_mine }}" class="shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-sm font-semibold {% if request.path == u_mine %}bg-primary/10 text-primary{% else %}text-base-content/50 hover:text-base-content hover:bg-base-200{% endif %}">Mis tickets</a>
+          {% if nav_can_dashboard %}
+            {% url 'tickets:dashboard' as u_dash %}
+            <a href="{{ u_dash }}" class="shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-sm font-semibold {% if request.path == u_dash %}bg-primary/10 text-primary{% else %}text-base-content/50 hover:text-base-content hover:bg-base-200{% endif %}">Dashboard</a>
+          {% endif %}
+          {% if nav_can_seguimiento %}
+            {% url 'tickets:seguimiento' as u_seg %}
+            <a href="{{ u_seg }}" class="shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-sm font-semibold {% if request.path == u_seg %}bg-primary/10 text-primary{% else %}text-base-content/50 hover:text-base-content hover:bg-base-200{% endif %}">Seguimiento</a>
+          {% endif %}
+          {% if nav_can_projects %}
+            {% url 'tickets:projects' as u_proj %}
+            <a href="{{ u_proj }}" class="shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-sm font-semibold {% if request.path == u_proj %}bg-primary/10 text-primary{% else %}text-base-content/50 hover:text-base-content hover:bg-base-200{% endif %}">Proyectos</a>
+          {% endif %}
+          {% if nav_can_labels %}
+            {% url 'tickets:labels' as u_lab %}
+            <a href="{{ u_lab }}" class="shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-sm font-semibold {% if request.path == u_lab %}bg-primary/10 text-primary{% else %}text-base-content/50 hover:text-base-content hover:bg-base-200{% endif %}">Etiquetas</a>
+          {% endif %}
+          {% if nav_is_superuser %}
+            {% url 'accounts:access_admin' as u_acc %}
+            {% url 'accounts:roles_board' as u_rol %}
+            {% url 'accounts:nextcloud_config' as u_ncloud %}
+            <a href="{{ u_acc }}" class="shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-sm font-semibold {% if request.path == u_acc %}bg-primary/10 text-primary{% else %}text-base-content/50 hover:text-base-content hover:bg-base-200{% endif %}">Cuentas</a>
+            <a href="{{ u_rol }}" class="shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-sm font-semibold {% if request.path == u_rol %}bg-primary/10 text-primary{% else %}text-base-content/50 hover:text-base-content hover:bg-base-200{% endif %}">Roles</a>
+            <a href="{{ u_ncloud }}" class="shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-sm font-semibold {% if request.path == u_ncloud %}bg-primary/10 text-primary{% else %}text-base-content/50 hover:text-base-content hover:bg-base-200{% endif %}">Nextcloud</a>
+          {% endif %}
+        </nav>
+
+        <div class="flex items-center gap-2 ml-auto shrink-0">
+          {% if nav_can_create %}
+            <a href="{% url 'tickets:create' %}" class="btn btn-success btn-sm">+ Ticket</a>
+          {% endif %}
+          {% if dev_impersonate_available %}
+            <div class="dropdown dropdown-end">
+              <button tabindex="0" class="btn btn-sm gap-1 {% if dev_impersonate_active %}btn-warning{% else %}btn-ghost{% endif %}" title="Impersonar un usuario real (solo dev)">
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                <span class="hidden sm:inline text-xs">{% if dev_impersonate_active %}{{ dev_impersonate_active.get_full_name|default:dev_impersonate_active.email }}{% else %}Impersonar{% endif %}</span>
+              </button>
+              <ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box z-40 w-72 p-2 border border-base-300 shadow">
+                <li class="menu-title text-xs">Impersonar usuario (dev)</li>
+                {% if dev_impersonate_active %}
+                  <li class="border-b border-base-200 mb-1 pb-1">
+                    <form method="post" action="{% url 'accounts:dev_impersonate' %}" class="contents">
+                      {% csrf_token %}
+                      <input type="hidden" name="user_id" value="">
+                      <input type="hidden" name="next" value="{{ request.path }}">
+                      <button type="submit" class="w-full text-left text-error">Salir de impersonación</button>
+                    </form>
+                  </li>
+                {% endif %}
+                <div class="max-h-72 overflow-y-auto">
+                  {% for u in dev_impersonate_candidates %}
+                    <li>
+                      <form method="post" action="{% url 'accounts:dev_impersonate' %}" class="contents">
+                        {% csrf_token %}
+                        <input type="hidden" name="user_id" value="{{ u.pk }}">
+                        <input type="hidden" name="next" value="{{ request.path }}">
+                        <button type="submit" class="w-full text-left flex items-center justify-between gap-2 {% if dev_impersonate_active.pk == u.pk %}font-bold text-primary{% endif %}">
+                          <span class="truncate">{{ u.get_full_name|default:u.email }}</span>
+                          {% if u.profile %}<span class="badge badge-xs badge-ghost shrink-0">{{ u.profile.get_role_display }}</span>{% endif %}
+                        </button>
+                      </form>
+                    </li>
+                  {% empty %}
+                    <li class="text-xs text-base-content/40 px-2 py-1">No hay otros usuarios.</li>
+                  {% endfor %}
+                </div>
+              </ul>
+            </div>
+          {% endif %}
+          <button type="button" data-theme-toggle class="btn btn-ghost btn-sm btn-circle" title="Cambiar tema" aria-label="Cambiar tema">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.36 6.36l-.7-.7M6.34 6.34l-.7-.7m12.72 0l-.7.7M6.34 17.66l-.7.7M12 7a5 5 0 100 10 5 5 0 000-10z"/></svg>
+          </button>
+
+          <div id="notif-menu" data-notif-menu-url="{% url 'notifications:menu_fragment' %}">{% include 'notifications/partials/_menu.html' %}</div>
+          <div class="dropdown dropdown-end">
+            <button tabindex="0" class="btn btn-ghost btn-sm gap-2" aria-label="Menú">
+              <svg class="w-5 h-5 sm:hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+              <div class="hidden sm:block">
+                {% include 'tickets/partials/_avatar.html' with u=request.user size='w-7 h-7' %}
+              </div>
+              {% if nav_role_label %}<span class="hidden sm:inline-flex badge badge-sm badge-role" data-role="{{ nav_role }}">{{ nav_role_label }}</span>{% endif %}
+            </button>
+            <ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box z-40 w-56 p-2 border border-base-300 shadow">
+              <li class="sm:hidden menu-title text-xs truncate">{{ request.user.get_full_name|default:request.user.email|default:request.user.username }}{% if nav_role_label %} · {{ nav_role_label }}{% endif %}</li>
+              <li class="sm:hidden"><a href="{% url 'tickets:board' %}">Tablero</a></li>
+              <li class="sm:hidden"><a href="{% url 'tickets:my_tickets' %}">Mis tickets</a></li>
+              {% if nav_can_dashboard %}<li class="sm:hidden"><a href="{% url 'tickets:dashboard' %}">Dashboard</a></li>{% endif %}
+              {% if nav_can_seguimiento %}<li class="sm:hidden"><a href="{% url 'tickets:seguimiento' %}">Seguimiento</a></li>{% endif %}
+              {% if nav_can_projects %}<li class="sm:hidden"><a href="{% url 'tickets:projects' %}">Proyectos</a></li>{% endif %}
+              {% if nav_can_labels %}<li class="sm:hidden"><a href="{% url 'tickets:labels' %}">Etiquetas</a></li>{% endif %}
+              {% if nav_is_superuser %}
+                <li class="sm:hidden"><a href="{% url 'accounts:access_admin' %}">Cuentas</a></li>
+                <li class="sm:hidden"><a href="{% url 'accounts:roles_board' %}">Roles</a></li>
+                <li class="sm:hidden"><a href="{% url 'accounts:nextcloud_config' %}">Nextcloud</a></li>
+              {% endif %}
+              <li><a href="{% url 'tickets:archived' %}">Archivados</a></li>
+              <li><a href="{% url 'accounts:profile' %}">Mi perfil</a></li>
+              <li>
+                <form method="post" action="{% url 'accounts:logout' %}" class="contents">
+                  {% csrf_token %}
+                  <button type="submit" class="w-full text-left px-4 py-2 rounded-lg hover:bg-base-200 text-error">Cerrar sesión</button>
+                </form>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  {% if dev_impersonate_active %}
+    <div class="bg-warning text-warning-content text-xs text-center py-1.5 px-3 flex items-center justify-center gap-2">
+      <span>🔧 Impersonando a <strong>{{ dev_impersonate_active.get_full_name|default:dev_impersonate_active.email }}</strong> ({{ nav_role_label }}) — no sos vos (sos superuser)</span>
+      <form method="post" action="{% url 'accounts:dev_impersonate' %}" class="contents">
+        {% csrf_token %}
+        <input type="hidden" name="user_id" value="">
+        <input type="hidden" name="next" value="{{ request.path }}">
+        <button type="submit" class="underline font-semibold">Salir</button>
+      </form>
+    </div>
+  {% endif %}
+
+  {% if messages %}
+    <ul id="server-messages" hidden>
+      {% for message in messages %}<li data-tag="{{ message.tags }}">{{ message }}</li>{% endfor %}
+    </ul>
+  {% endif %}
+
+  <main class="container mx-auto max-w-[1600px] px-3 sm:px-6 py-6">
+    {% block app_content %}{% endblock %}
+  </main>
+</div>
+
+<!-- Modal de confirmación reutilizable (reemplaza confirm() nativo del navegador) -->
+<dialog id="confirm-modal" class="modal">
+  <div class="modal-box rounded-2xl max-w-sm text-center">
+    <h3 id="confirm-modal-title" class="font-bold text-base text-base-content mb-1.5">¿Confirmar acción?</h3>
+    <p id="confirm-modal-message" class="text-sm text-base-content/60"></p>
+    <div class="flex justify-center gap-2 mt-5">
+      <form method="dialog"><button class="btn btn-ghost btn-sm">Cancelar</button></form>
+      <button type="button" id="confirm-modal-ok" class="btn btn-error btn-sm">Confirmar</button>
+    </div>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>cerrar</button></form>
+</dialog>
+{% endblock %}
+
+{% block extra_scripts %}
+  <script src="{% static 'js/toast.js' %}" defer></script>
+  <script src="{% static 'js/app.js' %}" defer></script>
+  <script src="{% static 'js/live.js' %}" defer></script>
+  {% block app_scripts %}{% endblock %}
+{% endblock %}

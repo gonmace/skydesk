@@ -1,0 +1,34 @@
+{% extends 'tickets/base_app.html' %}
+{% block title %}Archivados{% endblock %}
+
+{% block app_content %}
+<div class="mb-4">
+  <h1 class="text-2xl font-black tracking-tight">Archivados</h1>
+  <p class="text-sm text-base-content/50">Tickets Concluidos o Suspendidos/Cancelados que fueron archivados.</p>
+</div>
+
+<div class="bg-base-100 rounded-2xl border border-base-300 overflow-hidden">
+  <div class="divide-y divide-base-200">
+    {% for t in page_obj %}
+      <div class="flex items-center gap-3 px-4 py-3">
+        <a href="{% url 'tickets:detail' t.pk %}" class="font-mono text-xs text-accent font-semibold shrink-0 w-20 hover:underline">{{ t.key }}</a>
+        <div class="min-w-0 flex-1">
+          <div class="flex items-center gap-2">
+            <span class="text-sm font-semibold truncate">{{ t.title }}</span>
+            <span class="badge badge-outline badge-xs font-medium {% if t.status == 'DONE' %}badge-success{% elif t.status == 'WAITING' %}badge-error{% else %}badge-ghost{% endif %}">{{ t.get_status_display }}</span>
+          </div>
+          <p class="text-xs text-base-content/40">Archivado {{ t.archived_at|date:"d/m/Y H:i" }}</p>
+        </div>
+        {% if is_superuser %}
+          <form method="post" action="{% url 'tickets:unarchive' t.pk %}" data-confirm="¿Desarchivar {{ t.key }}?">{% csrf_token %}
+            <button class="btn btn-ghost btn-xs">Desarchivar</button>
+          </form>
+        {% endif %}
+      </div>
+    {% empty %}
+      <div class="p-10 text-center text-base-content/40">No hay tickets archivados.</div>
+    {% endfor %}
+  </div>
+</div>
+{% include 'tickets/partials/_pagination.html' %}
+{% endblock %}

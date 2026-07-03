@@ -2,60 +2,405 @@
 @source not "../static";
 @source "../../../templates";
 @source "../../../home";
+@source "../../../accounts";
+@source "../../../tickets";
+@source "../../../notifications";
 @plugin "@tailwindcss/forms";
 @plugin "@tailwindcss/typography";
 @plugin "daisyui" {
   themes: light --default, dark --prefersdark;
 }
 
-/* ── Light theme ─────────────────────────────────────────────────────────── */
 @plugin "daisyui/theme" {
   name: "light";
   color-scheme: light;
-  --color-base-100: oklch(100% 0 0);
-  --color-base-200: oklch(90% 0 0);
-  --color-base-300: oklch(80% 0 0);
-  --color-base-content: #000;
-  --color-primary: #6366f1;
+  /* Superficies — matiz rojo, croma muy bajo (hue 25) */
+  --color-base-100: oklch(99% 0.002 25);
+  --color-base-200: oklch(96.5% 0.004 25);
+  --color-base-300: oklch(90% 0.006 25);
+  --color-base-content: #1A1516;            /* tinta */
+  /* Marca */
+  --color-primary: #E4002B;                 /* Rojo Coca-Cola */
   --color-primary-content: #fff;
-  --color-secondary: #45484d;
+  --color-secondary: #3A3133;
   --color-secondary-content: #fff;
-  --color-accent: #0ea5e9;
-  --color-accent-content: #fff;
-  --color-neutral: #45484d;
-  --color-neutral-content: oklch(92% 0.004 286.32);
-  --color-info: #0ea5e9;
-  --color-info-content: #fff;
-  --color-success: #10b981;
-  --color-success-content: #fff;
-  --color-warning: #f59e0b;
-  --color-warning-content: #fff;
-  --color-error: #ea580c;
-  --color-error-content: #fff;
+  --color-accent: #D1A23C;                  /* oro — reemplaza el morado */
+  --color-accent-content: #211A0C;
+  --color-neutral: #2B2426;
+  --color-neutral-content: #F4F0F1;
+  /* Semantica */
+  --color-info: #1273B8;    --color-info-content: #fff;
+  --color-success: #2F7D4F; --color-success-content: #fff;
+  --color-warning: #E07B00; --color-warning-content: #fff;   /* ambar */
+  --color-error: #A8071A;   --color-error-content: #fff;         /* < primary */
+  /* Acciones */
+  --color-edit: #C2521A;   --color-edit-content: #fff;           /* naranja quemado */
+  --color-delete: #8C0014; --color-delete-content: #fff;
+  --color-view: #1273B8;   --color-view-content: #fff;
+  --radius-selector: 0.5rem;  --radius-field: 0.625rem;
+  --radius-box: 0.875rem;     --radius-badge: 0.375rem;
 }
 
-/* ── Dark theme ──────────────────────────────────────────────────────────── */
 @plugin "daisyui/theme" {
   name: "dark";
   color-scheme: dark;
-  --color-base-100: #3a3a3e;
-  --color-base-200: #2e2e32;
-  --color-base-300: #4a4a50;
-  --color-base-content: #e8e8ed;
-  --color-primary: #818cf8;
-  --color-primary-content: #fff;
-  --color-secondary: #8e8e93;
-  --color-secondary-content: #fff;
-  --color-accent: #38bdf8;
-  --color-accent-content: #fff;
-  --color-neutral: #3a3a3c;
-  --color-neutral-content: #f5f5f7;
-  --color-info: #38bdf8;
-  --color-info-content: #fff;
-  --color-success: #34d399;
-  --color-success-content: #fff;
-  --color-warning: #fbbf24;
-  --color-warning-content: #000;
-  --color-error: #fb923c;
-  --color-error-content: #fff;
+  --color-base-100: #1E1819;                /* negro calido, matiz rojo */
+  --color-base-200: #272022;
+  --color-base-300: #342D2E;
+  --color-base-content: #F4F0F1;
+  --color-primary: #FF2233;  --color-primary-content: #fff;
+  --color-secondary: #B9B0B2;--color-secondary-content: #1E1819;
+  --color-accent: #E6BC5A;   --color-accent-content: #211A0C;
+  --color-neutral: #4A4143;  --color-neutral-content: #F4F0F1;
+  --color-info: #3AA0E0;    --color-info-content: #07121A;
+  --color-success: #46C47E; --color-success-content: #07150D;
+  --color-warning: #F5A623; --color-warning-content: #000;
+  --color-error: #FF5A52;   --color-error-content: #2A0505;
+  --color-edit: #F08A4B;    --color-edit-content: #211A0C;
+  --color-delete: #FF5247;  --color-delete-content: #fff;
+  --color-view: #5AB0EC;    --color-view-content: #07121A;
+  --radius-selector: 0.5rem;  --radius-field: 0.625rem;
+  --radius-box: 0.875rem;     --radius-badge: 0.375rem;
 }
+
+/* ── Tabla (DaisyUI v5) ──────────────────────────────────────────────────── */
+@layer components {
+  .table thead tr {
+    background-color: color-mix(in oklab, var(--color-base-300) 70%, var(--color-base-100));
+  }
+  .table thead th {
+    padding-top: 0.75rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 2px solid var(--color-base-300);
+  }
+  .table tbody tr:nth-child(even) {
+    background-color: var(--color-base-200);
+  }
+  .table tbody tr {
+    border-bottom: 1px solid color-mix(in oklab, var(--color-base-content) 6%, transparent);
+    transition: background-color 0.12s ease;
+  }
+  .table tbody tr:last-child { border-bottom: none; }
+  .table tbody tr:hover {
+    background-color: color-mix(in oklab, var(--color-primary) 8%, transparent) !important;
+  }
+}
+
+/* ── Botones tintados: fondo 18% + borde 30% + texto full color + sombra ──── */
+.btn-primary {
+  background-color: color-mix(in srgb, var(--color-primary) 18%, transparent) !important;
+  border-color:     color-mix(in srgb, var(--color-primary) 30%, transparent) !important;
+  color:            var(--color-primary) !important;
+  box-shadow:       0 1px 6px color-mix(in srgb, var(--color-primary) 15%, transparent) !important;
+}
+.btn-primary:hover {
+  background-color: color-mix(in srgb, var(--color-primary) 28%, transparent) !important;
+  border-color:     color-mix(in srgb, var(--color-primary) 40%, transparent) !important;
+  box-shadow:       0 2px 8px color-mix(in srgb, var(--color-primary) 22%, transparent) !important;
+}
+
+.btn-secondary {
+  background-color: color-mix(in srgb, var(--color-secondary) 18%, transparent) !important;
+  border-color:     color-mix(in srgb, var(--color-secondary) 30%, transparent) !important;
+  color:            var(--color-secondary) !important;
+}
+
+.btn-success {
+  background-color: color-mix(in srgb, var(--color-success) 18%, transparent) !important;
+  border-color:     color-mix(in srgb, var(--color-success) 30%, transparent) !important;
+  color:            var(--color-success) !important;
+}
+
+.btn-error {
+  background-color: color-mix(in srgb, var(--color-error) 18%, transparent) !important;
+  border-color:     color-mix(in srgb, var(--color-error) 30%, transparent) !important;
+  color:            var(--color-error) !important;
+}
+
+.btn-warning {
+  background-color: color-mix(in srgb, var(--color-warning) 18%, transparent) !important;
+  border-color:     color-mix(in srgb, var(--color-warning) 30%, transparent) !important;
+  color:            var(--color-warning) !important;
+}
+
+.btn-info {
+  background-color: color-mix(in srgb, var(--color-info) 18%, transparent) !important;
+  border-color:     color-mix(in srgb, var(--color-info) 30%, transparent) !important;
+  color:            var(--color-info) !important;
+}
+
+.btn-accent {
+  background-color: color-mix(in srgb, var(--color-accent) 18%, transparent) !important;
+  border-color:     color-mix(in srgb, var(--color-accent) 30%, transparent) !important;
+  color:            var(--color-accent) !important;
+}
+
+.btn-neutral {
+  background-color: color-mix(in srgb, var(--color-neutral) 18%, transparent) !important;
+  border-color:     color-mix(in srgb, var(--color-neutral) 30%, transparent) !important;
+  color:            var(--color-neutral) !important;
+}
+
+.btn-edit {
+  background-color: color-mix(in srgb, var(--color-edit) 18%, transparent) !important;
+  border-color:     color-mix(in srgb, var(--color-edit) 30%, transparent) !important;
+  color:            var(--color-edit) !important;
+}
+.btn-edit:hover { background-color: color-mix(in srgb, var(--color-edit) 28%, transparent) !important; }
+
+.btn-delete {
+  background-color: color-mix(in srgb, var(--color-delete) 18%, transparent) !important;
+  border-color:     color-mix(in srgb, var(--color-delete) 30%, transparent) !important;
+  color:            var(--color-delete) !important;
+}
+.btn-delete:hover { background-color: color-mix(in srgb, var(--color-delete) 28%, transparent) !important; }
+
+.btn-view {
+  background-color: color-mix(in srgb, var(--color-view) 18%, transparent) !important;
+  border-color:     color-mix(in srgb, var(--color-view) 30%, transparent) !important;
+  color:            var(--color-view) !important;
+}
+.btn-view:hover { background-color: color-mix(in srgb, var(--color-view) 28%, transparent) !important; }
+
+/* ── Alertas (toasts/mensajes) ───────────────────────────────────────────── */
+.alert-success {
+  background-color: color-mix(in srgb, var(--color-success) 12%, var(--color-base-100)) !important;
+  border-color: var(--color-success) !important;
+  color: var(--color-success) !important;
+}
+.alert-error {
+  background-color: color-mix(in srgb, var(--color-error) 12%, var(--color-base-100)) !important;
+  border-color: var(--color-error) !important;
+  color: var(--color-error) !important;
+}
+.alert-warning {
+  background-color: color-mix(in srgb, var(--color-warning) 12%, var(--color-base-100)) !important;
+  border-color: var(--color-warning) !important;
+  color: var(--color-warning) !important;
+}
+.alert-info {
+  background-color: color-mix(in srgb, var(--color-info) 12%, var(--color-base-100)) !important;
+  border-color: var(--color-info) !important;
+  color: var(--color-info) !important;
+}
+
+/* ── Elevación 3D de cards ────────────────────────────────────────────────── */
+.rounded-2xl.border-base-300,
+.ticket-card {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.60),
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    0 3px 8px rgba(0, 0, 0, 0.07),
+    0 8px 20px rgba(0, 0, 0, 0.05);
+}
+[data-theme="dark"] .rounded-2xl.border-base-300,
+[data-theme="dark"] .ticket-card {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 1px 2px rgba(0, 0, 0, 0.30),
+    0 3px 8px rgba(0, 0, 0, 0.35),
+    0 8px 20px rgba(0, 0, 0, 0.25);
+}
+
+/* En dark, el fondo de la app usa base-300 (en light se mantiene base-200) */
+[data-theme="dark"] .app-shell {
+  background-color: var(--color-base-300);
+}
+
+/* ── Borde de la card por ESTADO (data-status) — mismo mapeo que el punto de la
+   columna en _board_columns.html, para reforzar de qué columna es sin tener que mirar
+   el encabezado. ─────────────────────────────────────────────────────────────── */
+.ticket-card {
+  --status-color: var(--color-base-300);
+  border: 1px solid color-mix(in srgb, var(--status-color) 40%, transparent);
+  border-left: 3px solid var(--status-color);
+}
+.ticket-card[data-status="BACKLOG"]     { --status-color: var(--color-base-content); }
+.ticket-card[data-status="TODO"]        { --status-color: var(--color-info); }
+.ticket-card[data-status="IN_PROGRESS"] { --status-color: var(--color-warning); }
+.ticket-card[data-status="DONE"]        { --status-color: var(--color-success); }
+.ticket-card[data-status="WAITING"]     { --status-color: var(--color-error); }
+
+/* ── Prioridad como barras de intensidad (forma + color propio por nivel) ────
+   El estado tiñe la card entera (borde, arriba); la prioridad usa barras
+   ascendentes — la FORMA (barras vs. borde/punto) evita la confusión aunque el
+   color de un nivel coincida con el de algún estado. Blanco/negro → verde →
+   amarillo → rojo, de menor a mayor. */
+.prio-bars { display: inline-flex; align-items: flex-end; gap: 2px; height: 14px; }
+.prio-bars i {
+  width: 3px; border-radius: 1px; display: block;
+  background: color-mix(in oklab, var(--color-base-content) 22%, transparent); /* vacía */
+}
+.prio-bars i:nth-child(1) { height: 5px; }
+.prio-bars i:nth-child(2) { height: 8px; }
+.prio-bars i:nth-child(3) { height: 11px; }
+.prio-bars i:nth-child(4) { height: 14px; }
+.prio-bars[data-priority="LOW"]    i:nth-child(-n+1) { background: var(--color-base-content); }
+.prio-bars[data-priority="MEDIUM"] i:nth-child(-n+2) { background: var(--color-success); }
+.prio-bars[data-priority="HIGH"]   i:nth-child(-n+3) { background: var(--color-warning); }
+.prio-bars[data-priority="URGENT"] i:nth-child(-n+4) { background: var(--color-error); }
+
+/* ── Flash momentáneo de las cards derivadas al clickear "Dividido" ─────────── */
+@keyframes card-highlight-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 transparent; }
+  25%, 75% { box-shadow: 0 0 0 3px var(--color-accent); }
+}
+.card-highlight {
+  animation: card-highlight-pulse 1.2s ease-in-out;
+}
+
+/* ── Fecha vencida: destello tipo foco encendiéndose/atenuándose, en loop ────── */
+@keyframes overdue-glow {
+  0%, 100% { text-shadow: 0 0 2px currentColor; opacity: 0.7; }
+  50% { text-shadow: 0 0 6px currentColor, 0 0 10px currentColor; opacity: 1; }
+}
+.overdue-glow {
+  animation: overdue-glow 1.8s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .overdue-glow { animation: none; }
+}
+
+/* ── Compatibilidad *-bordered (DaisyUI v4 → v5) ──────────────────────────── */
+.input-bordered,
+.textarea-bordered,
+.select-bordered,
+.file-input-bordered {
+  border: 1px solid color-mix(in oklab, var(--color-base-content) 20%, transparent);
+}
+.input-bordered:focus,
+.input-bordered:focus-within,
+.textarea-bordered:focus,
+.select-bordered:focus {
+  border-color: color-mix(in oklab, var(--color-base-content) 40%, transparent);
+  outline: none;
+}
+
+/* ── Toggle apagado: pastilla atenuada (evita el blanco brillante en dark) ──── */
+.toggle:not(:checked) {
+  background-color: color-mix(in oklab, var(--color-base-content) 15%, var(--color-base-100)) !important;
+  border-color: color-mix(in oklab, var(--color-base-content) 25%, var(--color-base-100)) !important;
+  color: var(--color-base-100) !important; /* color del knob */
+}
+
+/* ── Tabla responsive: en mobile cada fila se apila como card etiquetada ────── */
+@media (max-width: 767px) {
+  .resp-table thead { display: none; }
+  .resp-table, .resp-table tbody { display: block; width: 100%; }
+  .resp-table tbody tr {
+    display: block;
+    border: 1px solid var(--color-base-300);
+    border-radius: var(--radius-box);
+    background-color: var(--color-base-100) !important;
+    padding: 0.5rem 0.85rem;
+    margin-bottom: 0.6rem;
+  }
+  .resp-table tbody td {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.4rem 0;
+    border: none;
+  }
+  /* Primera celda = encabezado de la card (sin etiqueta) */
+  .resp-table tbody td:first-child {
+    display: block;
+    font-weight: 600;
+    padding-bottom: 0.4rem;
+    margin-bottom: 0.3rem;
+    border-bottom: 1px solid var(--color-base-200);
+  }
+  /* Etiqueta de la celda a la izquierda del control */
+  .resp-table tbody td[data-label]::before {
+    content: attr(data-label);
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: color-mix(in oklab, var(--color-base-content) 55%, transparent);
+  }
+}
+
+/* ── Chips de etiqueta (color por data-color, sin clases dinámicas de Tailwind) ── */
+.label-chip {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.7rem;
+  font-weight: 600;
+  line-height: 1;
+  padding: 0.15rem 0.45rem;
+  border-radius: var(--radius-badge);
+  border: 1px solid transparent;
+}
+.label-chip[data-color="info"]      { background: color-mix(in srgb, var(--color-info) 15%, transparent);      color: var(--color-info);      border-color: color-mix(in srgb, var(--color-info) 30%, transparent); }
+.label-chip[data-color="success"]   { background: color-mix(in srgb, var(--color-success) 15%, transparent);   color: var(--color-success);   border-color: color-mix(in srgb, var(--color-success) 30%, transparent); }
+.label-chip[data-color="warning"]   { background: color-mix(in srgb, var(--color-warning) 18%, transparent);   color: var(--color-warning);   border-color: color-mix(in srgb, var(--color-warning) 35%, transparent); }
+.label-chip[data-color="error"]     { background: color-mix(in srgb, var(--color-error) 15%, transparent);     color: var(--color-error);     border-color: color-mix(in srgb, var(--color-error) 30%, transparent); }
+.label-chip[data-color="accent"]    { background: color-mix(in srgb, var(--color-accent) 15%, transparent);    color: var(--color-accent);    border-color: color-mix(in srgb, var(--color-accent) 30%, transparent); }
+.label-chip[data-color="neutral"]   { background: color-mix(in srgb, var(--color-neutral) 12%, transparent);   color: var(--color-neutral);   border-color: color-mix(in srgb, var(--color-neutral) 25%, transparent); }
+.label-chip[data-color="secondary"] { background: color-mix(in srgb, var(--color-secondary) 15%, transparent); color: var(--color-secondary); border-color: color-mix(in srgb, var(--color-secondary) 30%, transparent); }
+[data-theme="dark"] .label-chip[data-color="neutral"] { color: var(--color-base-content); }
+
+/* ── Badge gris sólido (prioridad Baja) — adaptado a claro/oscuro ───────────── */
+.badge-gray {
+  background-color: color-mix(in oklab, var(--color-base-content) 22%, var(--color-base-100)) !important;
+  color: var(--color-base-content) !important;
+  border-color: transparent !important;
+}
+
+/* ── Insignia de rol (menú) — color por rol ────────────────────────────────── */
+.badge-role {
+  --role-color: var(--color-neutral);
+  background-color: color-mix(in srgb, var(--role-color) 15%, transparent) !important;
+  color: var(--role-color) !important;
+  border-color: color-mix(in srgb, var(--role-color) 30%, transparent) !important;
+}
+.badge-role[data-role="COORDINADOR"] { --role-color: var(--color-primary); }
+.badge-role[data-role="EXPERTO"]     { --role-color: var(--color-info); }
+.badge-role[data-role="EJECUTOR"]    { --role-color: var(--color-success); }
+.badge-role[data-role="SEGUIMIENTO"] { --role-color: var(--color-accent); }
+
+/* ── Avatar — gris neutro adaptado al tema, con borde del mismo color ───────── */
+.avatar-role {
+  --g: color-mix(in oklab, var(--color-base-content) 55%, transparent);
+  background-color: color-mix(in oklab, var(--color-base-content) 8%, transparent);
+  color: var(--g);
+  border: 1px solid var(--g);
+}
+
+/* ── Avatar de usuario — color pastel estable por persona (8 variantes, por pk) ── */
+.avatar-user { border: 1px solid transparent; }
+.avatar-user[data-avatar-color="0"] { background: hsl(0 75% 88%);   color: hsl(0 55% 32%);   border-color: hsl(0 60% 78%); }
+.avatar-user[data-avatar-color="1"] { background: hsl(45 75% 85%);  color: hsl(35 55% 30%);  border-color: hsl(45 60% 72%); }
+.avatar-user[data-avatar-color="2"] { background: hsl(90 55% 85%);  color: hsl(90 40% 28%);  border-color: hsl(90 45% 70%); }
+.avatar-user[data-avatar-color="3"] { background: hsl(150 55% 85%); color: hsl(150 45% 26%); border-color: hsl(150 45% 68%); }
+.avatar-user[data-avatar-color="4"] { background: hsl(190 65% 87%); color: hsl(195 55% 28%); border-color: hsl(190 50% 72%); }
+.avatar-user[data-avatar-color="5"] { background: hsl(220 70% 90%); color: hsl(220 55% 35%); border-color: hsl(220 55% 78%); }
+.avatar-user[data-avatar-color="6"] { background: hsl(265 60% 90%); color: hsl(265 45% 35%); border-color: hsl(265 45% 78%); }
+.avatar-user[data-avatar-color="7"] { background: hsl(320 65% 90%); color: hsl(320 45% 35%); border-color: hsl(320 45% 78%); }
+
+/* ── Pila de avatares superpuestos — cada uno tapa al anterior, con anillo que
+   los separa visualmente del fondo de la tarjeta ─────────────────────────── */
+.avatar-stack > .avatar-user {
+  position: relative;
+  box-shadow: 0 0 0 2px var(--color-base-100);
+}
+.avatar-stack > .avatar-user:nth-child(1) { z-index: 1; }
+.avatar-stack > .avatar-user:nth-child(2) { z-index: 2; }
+.avatar-stack > .avatar-user:nth-child(3) { z-index: 3; }
+.avatar-stack > .avatar-user:nth-child(4) { z-index: 4; }
+.avatar-stack > .avatar-user:nth-child(5) { z-index: 5; }
+.avatar-stack > .avatar-user:nth-child(6) { z-index: 6; }
+.avatar-stack > .avatar-user:nth-child(7) { z-index: 7; }
+.avatar-stack > .avatar-user:nth-child(8) { z-index: 8; }
+
+/* ── Vínculo entre cards del mismo ticket (tablero de subticket, multiproducto con
+   varios ejecutores) — punto "status" con ping (mismos 8 tonos que el avatar) en vez
+   de un borde, para no competir con el resto de la card. */
+.ticket-link-dot[data-link-color="0"] { background-color: hsl(0 70% 55%); }
+.ticket-link-dot[data-link-color="1"] { background-color: hsl(45 75% 50%); }
+.ticket-link-dot[data-link-color="2"] { background-color: hsl(90 55% 45%); }
+.ticket-link-dot[data-link-color="3"] { background-color: hsl(150 55% 40%); }
+.ticket-link-dot[data-link-color="4"] { background-color: hsl(190 65% 42%); }
+.ticket-link-dot[data-link-color="5"] { background-color: hsl(220 70% 55%); }
+.ticket-link-dot[data-link-color="6"] { background-color: hsl(265 60% 55%); }
+.ticket-link-dot[data-link-color="7"] { background-color: hsl(320 65% 50%); }

@@ -1,0 +1,152 @@
+{% extends 'tickets/base_app.html' %}
+{% block title %}Cuentas · Acceso{% endblock %}
+
+{% block app_content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-black tracking-tight">Cuentas</h1>
+  <p class="text-sm text-base-content/50">Gestioná quién puede registrarse y acceder al sistema.</p>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+
+  <!-- Dominios permitidos -->
+  <section class="bg-base-100 rounded-2xl border border-base-300 p-5">
+    <h2 class="text-sm font-bold mb-3">Dominios permitidos</h2>
+    <form method="post" class="flex flex-col sm:flex-row gap-2 mb-4">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="add_domain">
+      <div class="flex-1">{{ domain_form.domain }}</div>
+      <div class="w-full sm:w-40">{{ domain_form.default_role }}</div>
+      <button class="btn btn-success btn-sm">Agregar</button>
+    </form>
+    <div class="space-y-2">
+      {% for d in domains %}
+        <div class="flex items-center gap-2 py-2 border-b border-base-200 last:border-0">
+          <span class="font-mono text-sm min-w-0 flex-1 break-words {% if not d.is_active %}line-through opacity-40{% endif %}">{{ d.domain }}</span>
+          {% if d.default_role %}<span class="badge badge-ghost badge-sm">{{ d.get_default_role_display }}</span>{% endif %}
+          <form method="post" class="inline">{% csrf_token %}
+            <input type="hidden" name="action" value="toggle_domain">
+            <input type="hidden" name="id" value="{{ d.pk }}">
+            <button class="badge badge-sm {% if d.is_active %}badge-success{% else %}badge-ghost{% endif %}">{% if d.is_active %}activo{% else %}inactivo{% endif %}</button>
+          </form>
+          <form method="post" class="inline" data-confirm="¿Eliminar el dominio {{ d.domain }}?">{% csrf_token %}
+            <input type="hidden" name="action" value="delete_domain">
+            <input type="hidden" name="id" value="{{ d.pk }}">
+            <button class="btn btn-ghost btn-xs text-error">✕</button>
+          </form>
+        </div>
+      {% empty %}
+        <p class="text-sm text-base-content/40">Sin dominios cargados.</p>
+      {% endfor %}
+    </div>
+  </section>
+
+  <!-- Correos permitidos -->
+  <section class="bg-base-100 rounded-2xl border border-base-300 p-5">
+    <h2 class="text-sm font-bold mb-3">Correos permitidos (excepciones)</h2>
+    <form method="post" class="flex flex-col sm:flex-row gap-2 mb-4">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="add_email">
+      <div class="flex-1">{{ email_form.email }}</div>
+      <div class="w-full sm:w-40">{{ email_form.default_role }}</div>
+      <button class="btn btn-success btn-sm">Agregar</button>
+    </form>
+    <div class="space-y-2">
+      {% for e in emails %}
+        <div class="flex items-center gap-2 py-2 border-b border-base-200 last:border-0">
+          <span class="text-sm min-w-0 flex-1 break-words {% if not e.is_active %}line-through opacity-40{% endif %}">{{ e.email }}</span>
+          {% if e.default_role %}<span class="badge badge-ghost badge-sm">{{ e.get_default_role_display }}</span>{% endif %}
+          <form method="post" class="inline">{% csrf_token %}
+            <input type="hidden" name="action" value="toggle_email">
+            <input type="hidden" name="id" value="{{ e.pk }}">
+            <button class="badge badge-sm {% if e.is_active %}badge-success{% else %}badge-ghost{% endif %}">{% if e.is_active %}activo{% else %}inactivo{% endif %}</button>
+          </form>
+          <form method="post" class="inline" data-confirm="¿Eliminar el correo {{ e.email }}?">{% csrf_token %}
+            <input type="hidden" name="action" value="delete_email">
+            <input type="hidden" name="id" value="{{ e.pk }}">
+            <button class="btn btn-ghost btn-xs text-error">✕</button>
+          </form>
+        </div>
+      {% empty %}
+        <p class="text-sm text-base-content/40">Sin correos cargados.</p>
+      {% endfor %}
+    </div>
+  </section>
+
+  <!-- Invitar -->
+  <section class="bg-base-100 rounded-2xl border border-base-300 p-5 lg:col-span-2">
+    <h2 class="text-sm font-bold mb-3">Invitar a alguien</h2>
+    <p class="text-xs text-base-content/50 mb-3">Habilita el correo y le envía el enlace de activación directamente.</p>
+    <form method="post" class="flex flex-col sm:flex-row gap-2">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="invite">
+      <div class="flex-1">{{ invite_form.email }}</div>
+      <div class="w-full sm:w-48">{{ invite_form.role }}</div>
+      <button class="btn btn-success btn-sm">Enviar invitación</button>
+    </form>
+  </section>
+
+  <!-- Cuentas registradas -->
+  <section class="bg-base-100 rounded-2xl border border-base-300 p-5 lg:col-span-2 overflow-x-auto">
+    <h2 class="text-sm font-bold mb-3">Cuentas registradas</h2>
+    <table class="table table-sm w-full resp-table">
+      <thead>
+        <tr>
+          <th class="text-left">Cuenta</th>
+          <th class="text-left">Rol</th>
+          <th class="text-left">Estado</th>
+          <th class="text-left">Último acceso</th>
+          <th class="text-right">Acción</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in users %}
+          <tr>
+            <td class="text-sm">
+              {% if u.get_full_name %}<span class="font-medium">{{ u.get_full_name }}</span> <span class="text-xs text-base-content/50">{{ u.email }}</span>{% else %}{{ u.email|default:u.username }}{% endif %}
+              {% if u.is_superuser %}<span class="badge badge-xs badge-primary">superuser</span>{% endif %}
+            </td>
+            <td data-label="Rol">
+              {% if u.profile %}<span class="badge badge-sm badge-role" data-role="{{ u.profile.role }}">{{ u.profile.raci_letter }} · {{ u.profile.get_role_display }}</span>{% else %}<span class="text-base-content/30">—</span>{% endif %}
+            </td>
+            <td data-label="Estado">
+              {% if u.is_active %}
+                <span class="badge badge-success badge-sm">Activo</span>
+              {% elif u.last_login %}
+                <span class="badge badge-ghost badge-sm">Inactivo</span>
+              {% else %}
+                <span class="badge badge-warning badge-sm">Pendiente</span>
+              {% endif %}
+            </td>
+            <td data-label="Último acceso" class="text-sm text-base-content/60">{{ u.last_login|date:"d/m/Y H:i"|default:"Nunca" }}</td>
+            <td data-label="Acción" class="text-right">
+              <div class="inline-flex items-center gap-2 justify-end">
+              <a href="{% url 'accounts:user_edit' u.pk %}" class="btn btn-edit btn-xs">Editar</a>
+              {% if u.is_superuser or u.pk == request.user.pk %}
+                <span class="text-xs text-base-content/30">—</span>
+              {% elif u.is_active %}
+                <form method="post" class="inline" data-confirm="¿Desactivar a {{ u.email|default:u.username }}?">{% csrf_token %}
+                  <input type="hidden" name="action" value="toggle_user">
+                  <input type="hidden" name="id" value="{{ u.pk }}">
+                  <button class="btn btn-ghost btn-xs text-error">Desactivar</button>
+                </form>
+              {% else %}
+                <form method="post" class="inline">{% csrf_token %}
+                  <input type="hidden" name="action" value="resend_invite">
+                  <input type="hidden" name="id" value="{{ u.pk }}">
+                  <button class="btn btn-success btn-xs">Reenviar</button>
+                </form>
+              {% endif %}
+              </div>
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="5" class="text-center text-base-content/40 py-4">Sin usuarios todavía.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% include 'tickets/partials/_pagination.html' with page_obj=users %}
+  </section>
+
+</div>
+{% endblock %}

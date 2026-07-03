@@ -1,0 +1,31 @@
+{% comment %}
+  Badge + dropdown de notificaciones. Extraído a partial para poder refrescarlo vía AJAX
+  (notifications:menu_fragment) cuando llega un push en vivo (ver static/js/live.js) sin
+  tocar el resto del layout — usa el mismo contexto que ya arma
+  notifications/context_processors.py (notif_unread, notif_recent).
+{% endcomment %}
+<div class="dropdown dropdown-end">
+  <button tabindex="0" class="btn btn-ghost btn-sm btn-circle" aria-label="Notificaciones">
+    <div class="indicator">
+      {% if notif_unread %}<span class="indicator-item badge badge-primary badge-xs">{{ notif_unread }}</span>{% endif %}
+      <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0"/></svg>
+    </div>
+  </button>
+  <div tabindex="0" class="dropdown-content z-40 w-80 bg-base-100 rounded-box border border-base-300 shadow p-2">
+    <div class="flex items-center justify-between px-2 py-1">
+      <span class="text-sm font-bold">Notificaciones</span>
+      <a href="{% url 'notifications:list' %}" class="text-xs text-primary hover:underline">Ver todas</a>
+    </div>
+    <div class="divide-y divide-base-200 max-h-80 overflow-y-auto">
+      {% for n in notif_recent %}
+        <a href="{% url 'notifications:open' n.pk %}" class="block px-2 py-2 text-sm hover:bg-base-200 rounded-lg {% if not n.is_read %}font-semibold{% endif %}">
+          {% if n.actor %}<span class="font-medium">{{ n.actor.get_full_name|default:n.actor.email|default:n.actor.username }}</span> {% endif %}{{ n.verb }}
+          {% if n.ticket %}<span class="font-mono text-xs text-accent">{{ n.ticket.key }}</span>{% endif %}
+          <span class="block text-xs text-base-content/40 font-normal">{{ n.created|date:"d/m H:i" }}</span>
+        </a>
+      {% empty %}
+        <p class="px-2 py-4 text-sm text-base-content/40 text-center">Sin notificaciones.</p>
+      {% endfor %}
+    </div>
+  </div>
+</div>

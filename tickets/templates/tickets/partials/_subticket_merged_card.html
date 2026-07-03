@@ -1,0 +1,38 @@
+{% load static %}
+{% comment %}
+  Cuando 2+ subtickets del mismo ticket (multiproducto) coinciden en el mismo estado,
+  se muestran fusionados en una sola card — evita mostrar "mi card" + fantasma casi
+  idénticas una al lado de la otra cuando ya están alineadas. Se vuelven a separar en
+  cuanto alguno de los dos cambie de estado de nuevo.
+{% endcomment %}
+<div data-ticket-id="{{ ticket.pk }}" data-status="{{ group.0.status }}" data-priority="{{ ticket.priority }}" data-merged="1"{% if my_assignment %} data-assignment-id="{{ my_assignment.pk }}"{% endif %}{% if is_locked %} data-locked="1"{% endif %}{% if is_readonly %} data-readonly="1"{% elif not my_assignment %} data-ghost="1"{% endif %}
+     class="ticket-card bg-base-100 rounded-2xl p-3 {% if is_locked %}is-locked{% elif is_readonly %}is-readonly{% elif not my_assignment %}opacity-50 is-ghost{% endif %}">
+  <div class="flex items-center justify-between gap-2">
+    <div class="flex items-baseline gap-1.5 min-w-0">
+      {% include 'tickets/partials/_ticket_link_dot.html' with t=ticket link_color=link_color %}
+      <a href="{% url 'tickets:detail' ticket.pk %}" class="font-mono text-xs text-accent font-semibold hover:underline shrink-0">{{ ticket.key }}</a>
+      {% if ticket.project %}<span class="text-[10px] font-semibold text-base-content/50 truncate" title="{{ ticket.project.name }}">{{ ticket.project.code }}</span>{% endif %}
+    </div>
+    <span class="flex items-center gap-1">
+      {% if is_locked %}<span class="badge badge-ghost badge-xs" title="Solo el coordinador puede reactivarlo">Suspendido</span>{% endif %}
+      {% include 'tickets/partials/_ticket_status_icons.html' with t=ticket %}
+    </span>
+  </div>
+
+  <a href="{% url 'tickets:detail' ticket.pk %}" class="block mt-1.5 text-sm font-semibold leading-snug hover:text-primary line-clamp-3">{{ ticket.title }}</a>
+  {% if is_readonly %}
+    <span class="badge badge-ghost badge-xs mt-1" title="Subtickets de los ejecutores">{{ group|length }} ejecutores</span>
+    {% if pending_approval %}<span class="badge badge-success badge-xs mt-1" title="Falta la aprobación del coordinador">Pendiente de aprobación</span>{% endif %}
+  {% elif not my_assignment %}<span class="badge badge-ghost badge-xs mt-1" title="Subtickets de otros ejecutores">{{ group|length }} ejecutores</span>
+  {% elif my_assignment.status == 'DONE' and not my_assignment.approved_at %}<span class="badge badge-success badge-xs mt-1" title="El ejecutor concluyó, falta la aprobación del coordinador">Pendiente de aprobación</span>{% endif %}
+
+  {% with labels=ticket.labels.all %}
+    {% if labels %}
+      <div class="flex flex-wrap gap-1 mt-2">
+        {% for l in labels %}<span class="label-chip" data-color="{{ l.color }}">{{ l.name }}</span>{% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+
+  {% include 'tickets/partials/_card_footer.html' with t=ticket assignments=group %}
+</div>

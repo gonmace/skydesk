@@ -1,0 +1,244 @@
+{% extends 'tickets/base_app.html' %}
+{% load static %}
+{% block title %}{{ ticket.key }} · {{ ticket.title }}{% endblock %}
+
+{% block app_content %}
+<div id="live-ticket-marker" data-ticket-id="{{ ticket.pk }}" hidden></div>
+<div class="mb-4">
+  <a href="{% url 'tickets:board' %}" class="text-sm text-base-content/50 hover:text-base-content">← Volver al tablero</a>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+
+  <!-- Columna izquierda: datos -->
+  <div class="lg:col-span-1 space-y-5">
+    <div class="bg-base-100 rounded-2xl border border-base-300 overflow-hidden">
+      <div class="px-5 py-3 border-b border-base-200 flex items-center justify-between gap-2">
+        <span class="font-mono text-xs text-accent font-semibold">{{ ticket.key }}</span>
+        <span class="flex items-center gap-1.5">
+          {% if ticket.suspended_at %}<span class="badge badge-ghost badge-sm" title="Solo el coordinador puede reactivarlo">Bloqueado por coordinador</span>{% endif %}
+          {% if is_split %}
+            <span class="badge badge-accent badge-sm" title="Contenedor: ya no aparece en el tablero, solo sus partes">Dividido ×{{ children|length }}</span>
+          {% elif children %}
+            <span class="badge badge-accent badge-sm" title="Derivado en subtickets">Derivados ×{{ children|length }}</span>
+          {% endif %}
+          {% if pending_approval %}
+          <span class="badge badge-outline badge-sm font-medium badge-success" title="El ejecutor concluyó, falta la aprobación del coordinador">
+            Pendiente de aprobación
+          </span>
+          {% else %}
+          <span class="badge badge-outline badge-sm font-medium
+            {% if ticket.status == 'BACKLOG' %}bg-base-content border-base-100/25 text-base-100{% elif ticket.status == 'TODO' %}badge-info{% elif ticket.status == 'IN_PROGRESS' %}badge-warning{% elif ticket.status == 'DONE' %}badge-success{% else %}badge-error{% endif %}">
+            {{ ticket.get_status_display }}
+          </span>
+          {% endif %}
+        </span>
+      </div>
+      {% if is_split %}
+        <div class="px-5 py-2.5 bg-accent/10 border-b border-base-200 text-xs text-base-content/70">
+          Contenedor — dividido en partes, no aparece como card en el tablero.
+          {% if split_summary %}
+            <span class="ml-1">{% for label, n in split_summary %}{{ label }}: {{ n }}{% if not forloop.last %} · {% endif %}{% endfor %}</span>
+          {% endif %}
+        </div>
+      {% endif %}
+      <div class="p-5">
+        <h1 class="text-lg font-bold leading-snug">{{ ticket.title }}</h1>
+        {% if ticket.parent %}<p class="mt-1 text-xs text-base-content/50">{% if parent_is_split %}Parte de{% else %}Deriva de{% endif %} <a href="{% url 'tickets:detail' ticket.parent.pk %}" class="font-mono text-accent hover:underline">{{ ticket.parent.key }}</a></p>{% endif %}
+        {% if ticket.description %}
+          <p class="mt-2 text-sm text-base-content/70 whitespace-pre-wrap break-words">{{ ticket.description }}</p>
+        {% endif %}
+        {% with labels=ticket.labels.all %}
+          {% if labels %}
+            <div class="flex flex-wrap gap-1.5 mt-3">
+              {% for l in labels %}<span class="label-chip" data-color="{{ l.color }}">{{ l.name }}</span>{% endfor %}
+            </div>
+          {% endif %}
+        {% endwith %}
+      </div>
+      <div class="divide-y divide-base-200 border-t border-base-200">
+        <div class="flex px-5 py-2.5 text-sm"><span class="text-base-content/40 w-28 shrink-0">Solicitante</span><span class="min-w-0 flex-1 break-words">{{ ticket.solicitante|default:"—" }}</span></div>
+        <div class="flex px-5 py-2.5 text-sm"><span class="text-base-content/40 w-28 shrink-0">Modalidad</span><span>{% if ticket.has_subproducts %}<span class="badge badge-sm badge-info">Con subproductos</span> <span class="text-base-content/40">subticket por ejecutor</span>{% else %}<span class="badge badge-sm badge-ghost">Colaborativa</span> <span class="text-base-content/40">estado compartido</span>{% endif %}</span></div>
+        {% if ticket.project %}
+          <div class="flex px-5 py-2.5 text-sm"><span class="text-base-content/40 w-28 shrink-0">Proyecto</span>
+            <span class="min-w-0 flex-1 break-words"><span class="font-mono text-xs text-accent font-semibold">{{ ticket.project.code }}</span> · {{ ticket.project.name }}{% if ticket.project.city %} <span class="text-base-content/40">· {{ ticket.project.city }}</span>{% endif %}</span>
+          </div>
+        {% endif %}
+        <div class="flex px-5 py-2.5 text-sm"><span class="text-base-content/40 w-28 shrink-0">Prioridad</span>
+          <span class="badge badge-sm {% if ticket.priority == 'URGENT' %}badge-error{% elif ticket.priority == 'HIGH' %}badge-warning{% elif ticket.priority == 'MEDIUM' %}badge-info{% else %}badge-secondary{% endif %}">{{ ticket.get_priority_display }}</span>
+        </div>
+        {% if ticket.due_date %}<div class="flex px-5 py-2.5 text-sm"><span class="text-base-content/40 w-28 shrink-0">Vence</span><span class="{% if ticket.is_overdue %}text-error font-semibold{% endif %}">{{ ticket.due_date|date:"d/m/Y" }}{% if ticket.is_overdue %} · vencido{% endif %}</span></div>{% endif %}
+        <div class="flex px-5 py-2.5 text-sm"><span class="text-base-content/40 w-28 shrink-0">Creado por</span><span class="min-w-0 flex-1 break-words">{{ ticket.reporter.get_full_name|default:ticket.reporter.email|default:ticket.reporter.username|default:"—" }}</span></div>
+        <div class="flex px-5 py-2.5 text-sm"><span class="text-base-content/40 w-28 shrink-0">Creado</span><span>{{ ticket.created|date:"d/m/Y H:i" }}</span></div>
+        {% if ticket.closed_date %}<div class="flex px-5 py-2.5 text-sm"><span class="text-base-content/40 w-28 shrink-0">Cerrado</span><span>{{ ticket.closed_date|date:"d/m/Y H:i" }}</span></div>{% endif %}
+        {% if children %}<div class="flex px-5 py-2.5 text-sm"><span class="text-base-content/40 w-28 shrink-0">{% if is_split %}Partes{% else %}Derivados{% endif %}</span><span class="flex flex-wrap gap-2">{% for ch in children %}<a href="{% url 'tickets:detail' ch.pk %}" class="font-mono text-xs text-accent hover:underline">{{ ch.key }}</a>{% endfor %}</span></div>{% endif %}
+      </div>
+      <div class="px-5 py-3 border-t border-base-200 space-y-2">
+        {% if not is_split and my_assignment and my_assignment.status != 'DONE' %}
+          <label for="conclude-modal" class="btn btn-success btn-sm w-full">{% if ticket.has_subproducts %}Concluir mi subticket{% else %}Concluir la tarea{% endif %}</label>
+        {% endif %}
+        {% if not is_split and can_approve %}
+          <form method="post" action="{% url 'tickets:approve' ticket.pk %}">{% csrf_token %}
+            <button class="btn btn-success btn-sm w-full">Aprobar conclusión</button>
+          </form>
+        {% endif %}
+        {% if can_edit %}<a href="{% url 'tickets:edit' ticket.pk %}" class="btn btn-edit btn-sm w-full">Editar ticket</a>{% endif %}
+        <div class="flex gap-2">
+          {% if can_divide %}
+            <form method="post" action="{% url 'tickets:divide' ticket.pk %}" class="flex-1">{% csrf_token %}
+              <button class="btn btn-info btn-sm w-full">Dividir</button>
+            </form>
+          {% endif %}
+          {% if can_derive %}
+            <form method="post" action="{% url 'tickets:derive' ticket.pk %}" class="flex-1">{% csrf_token %}
+              <button class="btn btn-info btn-outline btn-sm w-full">Derivar</button>
+            </form>
+          {% endif %}
+          {% if can_suspend %}
+            <form method="post" action="{% url 'tickets:suspend' ticket.pk %}" class="flex-1"
+                  data-confirm="{% if ticket.status == 'WAITING' %}¿Reactivar {{ ticket.key }}?{% else %}¿Suspender/Cancelar {{ ticket.key }}?{% endif %}">{% csrf_token %}
+              <button class="btn btn-warning btn-sm w-full">{% if ticket.status == 'WAITING' %}Reactivar{% else %}Suspender{% endif %}</button>
+            </form>
+          {% endif %}
+          {% if can_archive %}
+            <form method="post" action="{% url 'tickets:archive' ticket.pk %}" class="flex-1" data-confirm="¿Archivar {{ ticket.key }}?">{% csrf_token %}
+              <button class="btn btn-secondary btn-sm w-full">Archivar</button>
+            </form>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <!-- Ejecutores / Expertos (subtickets) -->
+    <div class="bg-base-100 rounded-2xl border border-base-300 p-5">
+      <h2 class="text-sm font-bold mb-3">Ejecutores <span class="text-base-content/40 font-normal">(R)</span></h2>
+      {% if not ticket.has_subproducts and executors.0.conclusion %}
+        <p class="text-xs text-base-content/70 mb-3 whitespace-pre-wrap break-words">Conclusión: “{{ executors.0.conclusion }}”</p>
+      {% endif %}
+      <div class="space-y-3">
+        {% for a in executors %}
+          <div class="flex items-start gap-2 text-sm">
+            {% include 'tickets/partials/_avatar.html' with u=a.user size='w-7 h-7' %}
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center flex-wrap gap-1.5">
+                <span class="font-medium truncate">{{ a.user.get_full_name|default:a.user.email }}</span>
+                <span class="badge badge-xs {% if a.status == 'TODO' %}badge-info{% elif a.status == 'IN_PROGRESS' %}badge-warning{% elif a.status == 'DONE' %}badge-success{% elif a.status == 'WAITING' %}badge-error{% else %}bg-base-content border border-base-100/25 text-base-100{% endif %}">{{ a.get_status_display }}</span>
+                {% if a.status == 'DONE' and not a.approved_at %}<span class="badge badge-xs badge-warning">sin aprobar</span>{% endif %}
+                {% if a.approved_at %}<span class="badge badge-xs badge-success">aprobado</span>{% endif %}
+              </div>
+              {% if a.elapsed %}<p class="text-xs text-base-content/40">Tiempo total: {{ a.elapsed }}</p>{% endif %}
+              {% if a.time_todo_fmt or a.time_in_progress_fmt %}
+                <p class="text-xs text-base-content/40">
+                  {% if a.time_todo_fmt %}Por hacer: {{ a.time_todo_fmt }}{% endif %}
+                  {% if a.time_todo_fmt and a.time_in_progress_fmt %} · {% endif %}
+                  {% if a.time_in_progress_fmt %}En progreso: {{ a.time_in_progress_fmt }}{% endif %}
+                </p>
+              {% endif %}
+              {% if ticket.has_subproducts and a.conclusion %}<p class="text-xs text-base-content/70 mt-0.5 whitespace-pre-wrap break-words">“{{ a.conclusion }}”</p>{% endif %}
+            </div>
+          </div>
+        {% empty %}
+          <p class="text-xs text-base-content/40">Sin ejecutores asignados (Necesidad).</p>
+        {% endfor %}
+      </div>
+      {% if experts %}
+        <h2 class="text-sm font-bold mt-4 mb-2">Expertos <span class="text-base-content/40 font-normal">(C)</span></h2>
+        <div class="flex flex-wrap gap-2">
+          {% for a in experts %}
+            <span class="badge badge-ghost badge-sm gap-1.5 pl-1">
+              {% include 'tickets/partials/_avatar.html' with u=a.user size='w-5 h-5' muted=True %}
+              {{ a.user.get_full_name|default:a.user.email }}
+            </span>
+          {% endfor %}
+        </div>
+      {% endif %}
+    </div>
+
+    <!-- Historial -->
+    <div class="bg-base-100 rounded-2xl border border-base-300 p-5">
+      <h2 class="text-sm font-bold mb-3">Historial</h2>
+      <div class="space-y-2">
+        {% for e in events %}
+          <div class="text-xs flex gap-2">
+            <span class="text-base-content/40 shrink-0 w-16">{{ e.created|date:"d/m H:i" }}</span>
+            <span class="min-w-0 flex-1 break-words"><span class="font-medium">{{ e.actor.email|default:e.actor.username|default:"—" }}</span> {{ e.detail }}</span>
+          </div>
+        {% empty %}
+          <p class="text-xs text-base-content/40">Sin actividad.</p>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Columna derecha: chat de seguimiento -->
+  <div class="lg:col-span-2">
+    <div class="bg-base-100 rounded-2xl border border-base-300 flex flex-col min-h-[28rem]">
+      <div class="px-5 py-3 border-b border-base-200">
+        <h2 class="text-sm font-bold">Seguimiento</h2>
+      </div>
+      <div class="flex-1 p-5 space-y-4 overflow-y-auto">
+        {% for c in comments %}
+          {% include 'tickets/partials/chat_message.html' %}
+        {% empty %}
+          <p class="text-sm text-base-content/40 text-center py-8">Todavía no hay mensajes de seguimiento.</p>
+        {% endfor %}
+      </div>
+      {% if can_write_chat %}
+        <form method="post" action="{% url 'tickets:comment_add' ticket.pk %}" enctype="multipart/form-data" class="p-4 border-t border-base-200 space-y-2">
+          {% csrf_token %}
+          {{ comment_form.body }}
+          <div class="flex items-center justify-between gap-2">
+            <input type="file" name="files" multiple accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv,.txt" class="file-input file-input-bordered file-input-sm flex-1">
+            <button class="btn btn-success btn-sm">Enviar</button>
+          </div>
+        </form>
+      {% else %}
+        <div class="p-4 border-t border-base-200 text-xs text-base-content/40 text-center">No tenés permiso para escribir en este seguimiento.</div>
+      {% endif %}
+    </div>
+
+    <!-- Adjuntos (debajo del chat) -->
+    <div class="bg-base-100 rounded-2xl border border-base-300 p-5 mt-5">
+      <h2 class="text-sm font-bold mb-3">Adjuntos</h2>
+      <div class="flex flex-wrap gap-2 mb-3">
+        {% for a in ticket_attachments %}{% include 'tickets/partials/_attachment.html' %}{% empty %}<p class="text-xs text-base-content/40">Sin adjuntos.</p>{% endfor %}
+      </div>
+      {% if can_write_chat %}
+        <form method="post" action="{% url 'tickets:attachment_add' ticket.pk %}" enctype="multipart/form-data" data-dropzone>
+          {% csrf_token %}
+          <label data-dropzone-area class="flex flex-col items-center justify-center gap-1 border-2 border-dashed border-base-300 rounded-xl p-6 cursor-pointer hover:bg-base-200/50 transition-colors text-center">
+            <svg class="w-7 h-7 text-base-content/40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+            <span class="text-sm text-base-content/60">Arrastrá archivos acá o <span class="text-primary font-medium">elegilos</span></span>
+            <span class="text-xs text-base-content/40">imágenes, PDF o documentos (Word/Excel)</span>
+            <input type="file" name="files" multiple accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv,.txt" class="hidden" data-dropzone-input>
+          </label>
+        </form>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+
+{% if my_assignment and my_assignment.status != 'DONE' %}
+  <input type="checkbox" id="conclude-modal" class="modal-toggle" />
+  <div class="modal" role="dialog">
+    <div class="modal-box">
+      <h3 class="font-bold text-lg">{% if ticket.has_subproducts %}Concluir mi subticket{% else %}Concluir la tarea{% endif %}</h3>
+      <p class="text-sm text-base-content/60 mt-1">Podés agregar un texto con el resultado (puede ser un link), es opcional.{% if not ticket.has_subproducts %} Es colaborativa: concluye para todos los ejecutores.{% endif %}</p>
+      <form method="post" action="{% url 'tickets:assignment_conclude' my_assignment.pk %}" class="mt-3 space-y-3">
+        {% csrf_token %}
+        <textarea name="conclusion" rows="4" class="textarea textarea-bordered w-full" placeholder="Descripción o link con el resultado (opcional)…"></textarea>
+        <div class="flex justify-end gap-2">
+          <label for="conclude-modal" class="btn btn-ghost btn-sm">Cancelar</label>
+          <button class="btn btn-success btn-sm">Concluir</button>
+        </div>
+      </form>
+    </div>
+    <label class="modal-backdrop" for="conclude-modal">Cerrar</label>
+  </div>
+{% endif %}
+{% endblock %}
+
+{% block app_scripts %}
+  <script src="{% static 'js/dropzone.js' %}" defer></script>
+{% endblock %}

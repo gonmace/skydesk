@@ -1,0 +1,52 @@
+{% extends 'tickets/base_app.html' %}
+{% block title %}Roles y permisos{% endblock %}
+
+{% block app_content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-black tracking-tight">Roles y permisos</h1>
+  <p class="text-sm text-base-content/50">Activá/desactivá capacidades por rol. El superuser siempre tiene acceso total.</p>
+</div>
+
+<!-- Matriz de capacidades -->
+<section class="bg-base-100 rounded-2xl border border-base-300 p-5 mb-6 overflow-x-auto">
+  <form method="post">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="save_matrix">
+    <table class="table table-sm w-full resp-table">
+      <thead>
+        <tr>
+          <th class="text-left">Capacidad</th>
+          {% for role_value, role_label in roles %}
+            <th class="text-center">{{ role_label }}</th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in matrix %}
+          <tr>
+            <td>
+              <div class="text-sm font-medium">{{ row.label }}</div>
+              <div class="text-xs font-mono text-base-content/40">{{ row.key }}</div>
+            </td>
+            {% for cell in row.cells %}
+              <td class="text-center" data-label="{{ cell.label }}">
+                <label class="inline-flex items-center cursor-pointer align-middle">
+                  <input type="checkbox" name="{{ cell.role }}:{{ row.key }}" class="sr-only peer" {% if cell.enabled %}checked{% endif %}>
+                  <span class="relative w-9 h-5 rounded-full bg-base-300 transition-colors peer-checked:bg-success
+                               after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:h-4 after:w-4
+                               after:rounded-full after:bg-white after:shadow after:transition-transform
+                               peer-checked:after:translate-x-4"></span>
+                </label>
+              </td>
+            {% endfor %}
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <div class="mt-4 flex justify-end">
+      <button class="btn btn-success btn-sm">Guardar permisos</button>
+    </div>
+  </form>
+  <p class="text-xs text-base-content/40 mt-3">El rol de cada cuenta se edita en <a href="{% url 'accounts:access_admin' %}" class="text-primary hover:underline">Cuentas</a>.</p>
+</section>
+{% endblock %}
