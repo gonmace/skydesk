@@ -31,7 +31,7 @@
           {% endif %}
           {% if nav_can_labels %}
             {% url 'tickets:labels' as u_lab %}
-            <a href="{{ u_lab }}" class="shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-sm font-semibold {% if request.path == u_lab %}bg-primary/10 text-primary{% else %}text-base-content/50 hover:text-base-content hover:bg-base-200{% endif %}">Etiquetas</a>
+            <a href="{{ u_lab }}" class="shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-sm font-semibold {% if request.path == u_lab %}bg-primary/10 text-primary{% else %}text-base-content/50 hover:text-base-content hover:bg-base-200{% endif %}">Actividades</a>
           {% endif %}
           {% if nav_is_superuser %}
             {% url 'accounts:access_admin' as u_acc %}
@@ -105,7 +105,7 @@
               {% if nav_can_dashboard %}<li class="sm:hidden"><a href="{% url 'tickets:dashboard' %}">Dashboard</a></li>{% endif %}
               {% if nav_can_seguimiento %}<li class="sm:hidden"><a href="{% url 'tickets:seguimiento' %}">Seguimiento</a></li>{% endif %}
               {% if nav_can_projects %}<li class="sm:hidden"><a href="{% url 'tickets:projects' %}">Proyectos</a></li>{% endif %}
-              {% if nav_can_labels %}<li class="sm:hidden"><a href="{% url 'tickets:labels' %}">Etiquetas</a></li>{% endif %}
+              {% if nav_can_labels %}<li class="sm:hidden"><a href="{% url 'tickets:labels' %}">Actividades</a></li>{% endif %}
               {% if nav_is_superuser %}
                 <li class="sm:hidden"><a href="{% url 'accounts:access_admin' %}">Cuentas</a></li>
                 <li class="sm:hidden"><a href="{% url 'accounts:roles_board' %}">Roles</a></li>

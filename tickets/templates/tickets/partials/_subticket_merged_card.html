@@ -5,8 +5,8 @@
   idénticas una al lado de la otra cuando ya están alineadas. Se vuelven a separar en
   cuanto alguno de los dos cambie de estado de nuevo.
 {% endcomment %}
-<div data-ticket-id="{{ ticket.pk }}" data-status="{{ group.0.status }}" data-priority="{{ ticket.priority }}" data-merged="1"{% if my_assignment %} data-assignment-id="{{ my_assignment.pk }}"{% endif %}{% if is_locked %} data-locked="1"{% endif %}{% if is_readonly %} data-readonly="1"{% elif not my_assignment %} data-ghost="1"{% endif %}
-     class="ticket-card bg-base-100 rounded-2xl p-3 {% if is_locked %}is-locked{% elif is_readonly %}is-readonly{% elif not my_assignment %}opacity-50 is-ghost{% endif %}">
+<div data-ticket-id="{{ ticket.pk }}" data-status="{{ group.0.status }}" data-priority="{{ ticket.priority }}" data-merged="1"{% if my_assignment %} data-assignment-id="{{ my_assignment.pk }}"{% endif %}{% if is_locked %} data-locked="1"{% endif %}{% if is_readonly %} data-readonly="1"{% if is_muted %} data-muted="1"{% endif %}{% elif not my_assignment %} data-ghost="1"{% endif %}
+     class="ticket-card bg-base-100 rounded-2xl p-3 {% if is_locked %}is-locked{% endif %}{% if is_readonly %} is-readonly{% if is_muted %} opacity-50{% endif %}{% elif not my_assignment %} opacity-50 is-ghost{% endif %}">
   <div class="flex items-center justify-between gap-2">
     <div class="flex items-baseline gap-1.5 min-w-0">
       {% include 'tickets/partials/_ticket_link_dot.html' with t=ticket link_color=link_color %}

@@ -1,6 +1,6 @@
 {% load static %}
-<div data-assignment-id="{{ a.pk }}" data-ticket-id="{{ a.ticket.pk }}" data-status="{{ a.status }}" data-priority="{{ a.ticket.priority }}"{% if a.is_ghost %} data-ghost="1"{% endif %}{% if a.is_readonly %} data-readonly="1"{% endif %}{% if a.is_locked %} data-locked="1"{% endif %}{% if a.link_color != None %} data-link-color="{{ a.link_color }}"{% endif %}
-     class="ticket-card bg-base-100 rounded-2xl p-3 {% if a.is_ghost %}opacity-50 is-ghost{% elif a.is_readonly %}is-readonly{% elif a.is_locked %}is-locked{% endif %}">
+<div data-assignment-id="{{ a.pk }}" data-ticket-id="{{ a.ticket.pk }}" data-status="{{ a.status }}" data-priority="{{ a.ticket.priority }}"{% if a.is_ghost %} data-ghost="1"{% endif %}{% if a.is_readonly %} data-readonly="1"{% endif %}{% if a.is_readonly and a.is_muted %} data-muted="1"{% endif %}{% if a.is_locked %} data-locked="1"{% endif %}{% if a.link_color != None %} data-link-color="{{ a.link_color }}"{% endif %}
+     class="ticket-card bg-base-100 rounded-2xl p-3 {% if a.is_ghost %}opacity-50 is-ghost{% endif %}{% if a.is_readonly %} is-readonly{% endif %}{% if a.is_readonly and a.is_muted %} opacity-50{% endif %}{% if a.is_locked %} is-locked{% endif %}">
   <div class="flex items-center justify-between gap-2">
     <div class="flex items-baseline gap-1.5 min-w-0">
       {% include 'tickets/partials/_ticket_link_dot.html' with t=a.ticket link_color=a.link_color %}

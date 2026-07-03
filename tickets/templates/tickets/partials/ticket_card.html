@@ -1,6 +1,6 @@
 {% load static %}
-<div data-ticket-id="{{ t.pk }}" data-status="{{ t.display_status|default:t.status }}" data-priority="{{ t.priority }}"{% if t.suspended_at %} data-locked="1"{% elif t.is_muted %} data-muted="1"{% endif %}
-     class="ticket-card bg-base-100 rounded-2xl p-3 {% if t.suspended_at %}is-locked{% elif t.is_muted %}opacity-50{% endif %}">
+<div data-ticket-id="{{ t.pk }}" data-status="{{ t.display_status|default:t.status }}" data-priority="{{ t.priority }}"{% if t.suspended_at %} data-locked="1"{% endif %}{% if t.is_muted %} data-muted="1"{% endif %}
+     class="ticket-card bg-base-100 rounded-2xl p-3 {% if t.suspended_at %}is-locked{% endif %}{% if t.is_muted %} opacity-50{% endif %}">
   <div class="flex items-center justify-between gap-2">
     <div class="flex items-baseline gap-1.5 min-w-0">
       <a href="{% url 'tickets:detail' t.pk %}" class="font-mono text-xs text-accent font-semibold hover:underline shrink-0">{{ t.key }}</a>
