@@ -122,6 +122,16 @@ def users_with_capability(capability):
     ).distinct()
 
 
+def roles_with_capability(capability):
+    """Roles (valores de `Role`) que tienen esta capacidad habilitada por defecto —
+    política general del rol vía `RolePermission`, sin mirar overrides individuales de
+    `UserPermission` (esos son la excepción puntual de una cuenta, no la regla del rol).
+    Para leyendas/ayuda que describen "qué ve cada rol" en general, no lo que ve un
+    usuario particular ahora mismo (eso es `has_capability`)."""
+    return set(RolePermission.objects.filter(
+        capability=capability, enabled=True).values_list('role', flat=True))
+
+
 def require_capability(capability):
     """Decorador para vistas: 403 si el usuario no tiene la capacidad."""
     def decorator(view_func):

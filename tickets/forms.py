@@ -93,6 +93,18 @@ class CommentForm(forms.ModelForm):
         fields = ('body',)
         widgets = {
             'body': forms.Textarea(attrs={
-                'class': _TEXTAREA, 'rows': 2, 'placeholder': 'Escribí un mensaje de seguimiento…',
+                # min-h-0: DaisyUI fuerza min-height:5rem en .textarea sin importar
+                # `rows` — acá lo anulamos para que 1 fila se vea como 1 fila.
+                'class': f'{_TEXTAREA} min-h-0', 'rows': 1,
+                'placeholder': 'Escribí un mensaje de seguimiento…',
+                # id fijo: chat-submit.js lo enfoca tras el POST (ver #chat-compose
+                # en tickets/views.py::comment_add).
+                'id': 'chat-compose',
             }),
         }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # No requerido: comment_add permite mandar solo adjuntos sin texto
+        # (views.py valida que haya body o request.FILES antes de guardar).
+        self.fields['body'].required = False

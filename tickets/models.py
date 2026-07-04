@@ -42,7 +42,7 @@ class Project(models.Model):
 
 
 class Label(models.Model):
-    """Actividad de trabajo (con color) para clasificar tickets (M2M)."""
+    """Tipo de actividad (con color) para clasificar tickets (M2M)."""
     class Color(models.TextChoices):
         INFO = 'info', 'Azul'
         SUCCESS = 'success', 'Verde'
@@ -57,8 +57,8 @@ class Label(models.Model):
 
     class Meta:
         ordering = ['name']
-        verbose_name = 'Actividad'
-        verbose_name_plural = 'Actividades'
+        verbose_name = 'Tipo de Actividad'
+        verbose_name_plural = 'Tipos de Actividad'
 
     def __str__(self):
         return self.name
@@ -67,7 +67,7 @@ class Label(models.Model):
 class Ticket(models.Model):
     class Status(models.TextChoices):
         # El orden define el orden de las columnas del tablero.
-        BACKLOG = 'BACKLOG', 'Necesidad'
+        BACKLOG = 'BACKLOG', 'Entrada'
         TODO = 'TODO', 'Por hacer'
         IN_PROGRESS = 'IN_PROGRESS', 'En progreso'
         DONE = 'DONE', 'Concluido'
@@ -105,7 +105,7 @@ class Ticket(models.Model):
         related_name='tickets', verbose_name='Proyecto',
     )
     due_date = models.DateField('Vence', null=True, blank=True)
-    labels = models.ManyToManyField(Label, blank=True, related_name='tickets', verbose_name='Actividades')
+    labels = models.ManyToManyField(Label, blank=True, related_name='tickets', verbose_name='Tipos de Actividad')
 
     position = models.PositiveIntegerField(default=0)
     closed_date = models.DateTimeField('Cerrado', null=True, blank=True)
@@ -119,6 +119,12 @@ class Ticket(models.Model):
         'Dividido en partes', null=True, blank=True,
         help_text='Si se marca, el ticket es un contenedor: se descompuso en partes '
                   '(-1, -2…) y ya no aparece como card en el tablero; solo se ven sus partes.',
+    )
+    is_divided_part = models.BooleanField(
+        'Es una parte dividida', default=False,
+        help_text='Marca los hijos creados por "Dividir" (clon idéntico del padre, que '
+                  'sigue activo), a diferencia de los creados por "Derivar" (tarea nueva '
+                  'a completar a mano).',
     )
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
@@ -207,6 +213,16 @@ class Ticket(models.Model):
     def key(self):
         return self.code or f'SKY-{self.pk}'
 
+    def thread_ids(self, max_depth=10):
+        """[pk propio + ancestros, de abajo hacia arriba]: el detalle de un derivado /
+        parte muestra también el seguimiento e historial de su cadena de padres
+        (heredados en vivo, sin copiar filas). `max_depth` corta ciclos accidentales."""
+        ids, t = [self.pk], self
+        while t.parent_id and len(ids) <= max_depth:
+            ids.append(t.parent_id)
+            t = t.parent
+        return ids
+
     @property
     def executor_assignments(self):
         return self.assignments.filter(kind='EJECUTOR')
@@ -224,9 +240,9 @@ class Ticket(models.Model):
         S = self.Status
         if self.suspended_at:
             new = S.WAITING                              # Suspendido/Cancelado por el coordinador,
-                                                           # incluso sin ejecutores asignados (Necesidad)
+                                                           # incluso sin ejecutores asignados (Entrada)
         elif not ejec:
-            new = S.BACKLOG                              # Necesidad (sin ejecutores)
+            new = S.BACKLOG                              # Entrada (sin ejecutores)
         elif all(a.status == S.WAITING for a in ejec):
             new = S.WAITING                              # Suspendido/Cancelado
         elif all(a.status == S.DONE and a.approved_at for a in ejec):

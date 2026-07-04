@@ -7,6 +7,7 @@ import re
 from django.conf import settings
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
+from django.core.files.base import ContentFile
 
 from .backends import get_backend
 from .models import Attachment
@@ -44,6 +45,11 @@ DEFAULT_MAX_SIZE = 20 * 1024 * 1024  # 20 MB
 DEFAULT_ALLOWED = ('image/', 'application/pdf')
 
 _SAFE = re.compile(r'[^A-Za-z0-9._() \-]+')
+# Para el título del ticket en el nombre de carpeta: a diferencia de _sanitize
+# (nombres de archivo, ASCII-only por seguridad), acá se preservan acentos/ñ
+# (Nextcloud es UTF-8) y solo se sacan separadores de ruta y caracteres
+# reservados en Windows (por si se sincroniza con el cliente de escritorio).
+_UNSAFE_PATH = re.compile(r'[\\/:*?"<>|\x00-\x1f]+')
 
 
 def _max_size():
@@ -92,13 +98,21 @@ def _sanitize(filename):
     return name[:255]
 
 
+def _sanitize_title(text):
+    text = _UNSAFE_PATH.sub(' ', text).strip()
+    return text.strip('. ')[:80]  # sin puntos/espacios al final (Windows los rechaza)
+
+
 def _folder_for(content_object):
-    """Carpeta legible para el objeto dueño (ej. 'SKY-12'), sin importar tickets."""
-    if hasattr(content_object, 'key'):
-        return str(content_object.key)
-    ticket = getattr(content_object, 'ticket', None)
+    """Carpeta legible para el objeto dueño: código del ticket + título
+    (ej. 'SKY-1001_Instalación de cableado'), una sola carpeta plana."""
+    ticket = content_object if hasattr(content_object, 'key') else getattr(content_object, 'ticket', None)
     if ticket is not None and hasattr(ticket, 'key'):
-        return str(ticket.key)
+        ticket_folder = ticket.key
+        title = _sanitize_title(getattr(ticket, 'title', '') or '')
+        if title:
+            ticket_folder = f'{ticket_folder}_{title}'
+        return ticket_folder
     return f'{content_object._meta.model_name}-{content_object.pk}'
 
 
@@ -169,3 +183,54 @@ def delete_blob(attachment):
             'No se pudo borrar el blob %s/%s', attachment.storage_backend, attachment.storage_key,
         )
         raise
+
+
+def store_version(parent, *, png_bytes, owner, content_object=None):
+    """Guarda una nueva versión anotada de `parent` (imagen original). `png_bytes`
+    es el PNG resultante de dibujar a mano alzada sobre la imagen. El nuevo adjunto
+    apunta a `parent` vía `version_of` y lleva `version_number = parent.version_number + 1`.
+
+    `content_object` es el dueño del nuevo adjunto (por defecto el mismo que el de
+    `parent`, pero suele ser un nuevo comentario del usuario que anota, de modo que
+    la versión aparezca en el chat a su nombre y no al del autor original). El archivo
+    se guarda en la misma carpeta del ticket para mantener todo el historial junto."""
+    size = len(png_bytes)
+    if size > _max_size():
+        mb = _max_size() // (1024 * 1024)
+        raise ValidationError(f'La imagen supera el máximo de {mb} MB.')
+
+    backend = get_backend(parent.storage_backend)
+    digest = hashlib.sha256(png_bytes).hexdigest()
+
+    if content_object is None:
+        content_object = parent.content_object
+    ct = ContentType.objects.get_for_model(content_object)
+    existing = Attachment.objects.filter(
+        content_type=ct, object_id=content_object.pk, sha256=digest,
+    ).first()
+    if existing:
+        raise DuplicateAttachment(existing)
+
+    # Misma carpeta legible del ticket (ver _folder_for): el historial de versiones
+    # vive junto en storage aunque el content_object cambie.
+    owner_for_folder = parent.content_object
+    folder = os.path.dirname(parent.storage_key) or _folder_for(owner_for_folder)
+    base = os.path.splitext(parent.filename or 'imagen')[0]
+    filename = f'{base}-v{parent.version_number + 1}.png'
+    key = _unique_key(backend, folder, filename)
+
+    cf = ContentFile(png_bytes, name=filename)
+    stored_key = backend.save(key, cf, 'image/png')
+
+    return Attachment.objects.create(
+        content_object=content_object,
+        filename=filename,
+        mime_type='image/png',
+        size=size,
+        sha256=digest,
+        storage_backend=backend.name,
+        storage_key=stored_key,
+        uploaded_by=owner,
+        version_of=parent,
+        version_number=parent.version_number + 1,
+    )

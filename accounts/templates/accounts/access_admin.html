@@ -21,19 +21,21 @@
     </form>
     <div class="space-y-2">
       {% for d in domains %}
-        <div class="flex items-center gap-2 py-2 border-b border-base-200 last:border-0">
-          <span class="font-mono text-sm min-w-0 flex-1 break-words {% if not d.is_active %}line-through opacity-40{% endif %}">{{ d.domain }}</span>
-          {% if d.default_role %}<span class="badge badge-ghost badge-sm">{{ d.get_default_role_display }}</span>{% endif %}
-          <form method="post" class="inline">{% csrf_token %}
-            <input type="hidden" name="action" value="toggle_domain">
-            <input type="hidden" name="id" value="{{ d.pk }}">
-            <button class="badge badge-sm {% if d.is_active %}badge-success{% else %}badge-ghost{% endif %}">{% if d.is_active %}activo{% else %}inactivo{% endif %}</button>
-          </form>
-          <form method="post" class="inline" data-confirm="¿Eliminar el dominio {{ d.domain }}?">{% csrf_token %}
-            <input type="hidden" name="action" value="delete_domain">
-            <input type="hidden" name="id" value="{{ d.pk }}">
-            <button class="btn btn-ghost btn-xs text-error">✕</button>
-          </form>
+        <div class="flex flex-wrap items-center gap-x-2 gap-y-1.5 py-2 border-b border-base-200 last:border-0">
+          <span class="font-mono text-sm flex-1 min-w-[10rem] break-words {% if not d.is_active %}line-through opacity-40{% endif %}">{{ d.domain }}</span>
+          <div class="flex items-center gap-1.5 ml-auto">
+            {% if d.default_role %}<span class="badge badge-ghost badge-sm">{{ d.get_default_role_display }}</span>{% endif %}
+            <form method="post" class="inline">{% csrf_token %}
+              <input type="hidden" name="action" value="toggle_domain">
+              <input type="hidden" name="id" value="{{ d.pk }}">
+              <button class="badge badge-sm {% if d.is_active %}badge-success{% else %}badge-ghost{% endif %}">{% if d.is_active %}activo{% else %}inactivo{% endif %}</button>
+            </form>
+            <form method="post" class="inline" data-confirm="¿Eliminar el dominio {{ d.domain }}?">{% csrf_token %}
+              <input type="hidden" name="action" value="delete_domain">
+              <input type="hidden" name="id" value="{{ d.pk }}">
+              <button class="btn btn-ghost btn-xs text-error">✕</button>
+            </form>
+          </div>
         </div>
       {% empty %}
         <p class="text-sm text-base-content/40">Sin dominios cargados.</p>
@@ -44,6 +46,11 @@
   <!-- Correos permitidos -->
   <section class="bg-base-100 rounded-2xl border border-base-300 p-5">
     <h2 class="text-sm font-bold mb-3">Correos permitidos (excepciones)</h2>
+    <p class="text-xs text-base-content/50 mb-3">
+      También sirve para fijarle un rol a una persona por su correo antes de que se dé de
+      alta (por ejemplo, dejarla como Coordinador aunque su dominio ya esté permitido) — el
+      rol del correo tiene prioridad sobre el del dominio.
+    </p>
     <form method="post" class="flex flex-col sm:flex-row gap-2 mb-4">
       {% csrf_token %}
       <input type="hidden" name="action" value="add_email">
@@ -53,19 +60,31 @@
     </form>
     <div class="space-y-2">
       {% for e in emails %}
-        <div class="flex items-center gap-2 py-2 border-b border-base-200 last:border-0">
-          <span class="text-sm min-w-0 flex-1 break-words {% if not e.is_active %}line-through opacity-40{% endif %}">{{ e.email }}</span>
-          {% if e.default_role %}<span class="badge badge-ghost badge-sm">{{ e.get_default_role_display }}</span>{% endif %}
-          <form method="post" class="inline">{% csrf_token %}
-            <input type="hidden" name="action" value="toggle_email">
-            <input type="hidden" name="id" value="{{ e.pk }}">
-            <button class="badge badge-sm {% if e.is_active %}badge-success{% else %}badge-ghost{% endif %}">{% if e.is_active %}activo{% else %}inactivo{% endif %}</button>
-          </form>
-          <form method="post" class="inline" data-confirm="¿Eliminar el correo {{ e.email }}?">{% csrf_token %}
-            <input type="hidden" name="action" value="delete_email">
-            <input type="hidden" name="id" value="{{ e.pk }}">
-            <button class="btn btn-ghost btn-xs text-error">✕</button>
-          </form>
+        <div class="flex flex-wrap items-center gap-x-2 gap-y-1.5 py-2 border-b border-base-200 last:border-0">
+          <span class="text-sm flex-1 min-w-[10rem] break-words {% if not e.is_active %}line-through opacity-40{% endif %}">{{ e.email }}</span>
+          <div class="flex items-center gap-1.5 ml-auto">
+            <form method="post" class="inline-flex items-center gap-1 shrink-0">{% csrf_token %}
+              <input type="hidden" name="action" value="set_email_role">
+              <input type="hidden" name="id" value="{{ e.pk }}">
+              <select name="default_role" class="select select-xs select-bordered">
+                <option value="">— sin rol —</option>
+                {% for value, label in role_choices %}
+                  <option value="{{ value }}"{% if e.default_role == value %} selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+              <button class="btn btn-ghost btn-xs">Guardar</button>
+            </form>
+            <form method="post" class="inline">{% csrf_token %}
+              <input type="hidden" name="action" value="toggle_email">
+              <input type="hidden" name="id" value="{{ e.pk }}">
+              <button class="badge badge-sm {% if e.is_active %}badge-success{% else %}badge-ghost{% endif %}">{% if e.is_active %}activo{% else %}inactivo{% endif %}</button>
+            </form>
+            <form method="post" class="inline" data-confirm="¿Eliminar el correo {{ e.email }}?">{% csrf_token %}
+              <input type="hidden" name="action" value="delete_email">
+              <input type="hidden" name="id" value="{{ e.pk }}">
+              <button class="btn btn-ghost btn-xs text-error">✕</button>
+            </form>
+          </div>
         </div>
       {% empty %}
         <p class="text-sm text-base-content/40">Sin correos cargados.</p>
@@ -110,31 +129,49 @@
               {% if u.profile %}<span class="badge badge-sm badge-role" data-role="{{ u.profile.role }}">{{ u.profile.raci_letter }} · {{ u.profile.get_role_display }}</span>{% else %}<span class="text-base-content/30">—</span>{% endif %}
             </td>
             <td data-label="Estado">
-              {% if u.is_active %}
-                <span class="badge badge-success badge-sm">Activo</span>
-              {% elif u.last_login %}
-                <span class="badge badge-ghost badge-sm">Inactivo</span>
+              {% if u.is_superuser or u.pk == request.user.pk %}
+                <input type="checkbox" class="toggle toggle-success toggle-sm" disabled
+                       {% if u.is_active %}checked{% endif %}
+                       title="No podés cambiar este estado" aria-label="Estado">
+              {% elif not u.is_active and not u.has_usable_password %}
+                <input type="checkbox" class="toggle toggle-success toggle-sm" disabled
+                       title="Todavía no activó su cuenta — usá «Reenviar invitación»" aria-label="Estado">
               {% else %}
-                <span class="badge badge-warning badge-sm">Pendiente</span>
+                <form method="post" class="inline" data-ajax>{% csrf_token %}
+                  <input type="hidden" name="action" value="toggle_user">
+                  <input type="hidden" name="id" value="{{ u.pk }}">
+                  <input type="checkbox" class="toggle toggle-success toggle-sm" data-auto-submit
+                         data-label-on="Activo — clic para desactivar" data-label-off="Inactivo — clic para activar"
+                         {% if u.is_active %}checked{% endif %}
+                         title="{% if u.is_active %}Activo — clic para desactivar{% else %}Inactivo — clic para activar{% endif %}"
+                         aria-label="Estado">
+                </form>
               {% endif %}
             </td>
             <td data-label="Último acceso" class="text-sm text-base-content/60">{{ u.last_login|date:"d/m/Y H:i"|default:"Nunca" }}</td>
             <td data-label="Acción" class="text-right">
               <div class="inline-flex items-center gap-2 justify-end">
-              <a href="{% url 'accounts:user_edit' u.pk %}" class="btn btn-edit btn-xs">Editar</a>
+              <a href="{% url 'accounts:user_edit' u.pk %}" class="btn btn-edit btn-xs" title="Editar" aria-label="Editar">
+                <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.828 2.828 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
+              </a>
               {% if u.is_superuser or u.pk == request.user.pk %}
                 <span class="text-xs text-base-content/30">—</span>
-              {% elif u.is_active %}
-                <form method="post" class="inline" data-confirm="¿Desactivar a {{ u.email|default:u.username }}?">{% csrf_token %}
-                  <input type="hidden" name="action" value="toggle_user">
-                  <input type="hidden" name="id" value="{{ u.pk }}">
-                  <button class="btn btn-ghost btn-xs text-error">Desactivar</button>
-                </form>
               {% else %}
-                <form method="post" class="inline">{% csrf_token %}
-                  <input type="hidden" name="action" value="resend_invite">
+                {% if not u.is_active and not u.has_usable_password %}
+                  <form method="post" class="inline" data-ajax>{% csrf_token %}
+                    <input type="hidden" name="action" value="resend_invite">
+                    <input type="hidden" name="id" value="{{ u.pk }}">
+                    <button class="btn btn-success btn-xs" title="Reenviar invitación" aria-label="Reenviar invitación">
+                      <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+                    </button>
+                  </form>
+                {% endif %}
+                <form method="post" class="inline" data-confirm="¿Eliminar la cuenta de {{ u.email|default:u.username }}? Esta acción no se puede deshacer.">{% csrf_token %}
+                  <input type="hidden" name="action" value="delete_user">
                   <input type="hidden" name="id" value="{{ u.pk }}">
-                  <button class="btn btn-success btn-xs">Reenviar</button>
+                  <button class="btn btn-delete btn-xs" title="Eliminar cuenta" aria-label="Eliminar cuenta">
+                    <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/><path d="M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                  </button>
                 </form>
               {% endif %}
               </div>

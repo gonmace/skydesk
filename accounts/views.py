@@ -1,16 +1,18 @@
 import secrets
+from functools import wraps
 from urllib.parse import urlencode
 
 import requests
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import get_user_model, login
-from django.contrib.auth.decorators import login_required, user_passes_test
+from django.contrib.auth.decorators import login_required
 from django.contrib.auth.tokens import default_token_generator
-from django.contrib.auth.views import LoginView
+from django.contrib.auth.views import LoginView, redirect_to_login
 from django.core.cache import cache
+from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
-from django.http import Http404
+from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
 from django.urls import reverse
@@ -65,7 +67,18 @@ def _send_activation_email(request, user):
 
 
 def _superuser_required(view):
-    return user_passes_test(lambda u: u.is_superuser, login_url='accounts:login')(view)
+    # No usar user_passes_test tal cual: si el usuario ya está autenticado pero no es
+    # superusuario, redirigir al login (con CustomLoginView.redirect_authenticated_user=True)
+    # genera un ping-pong infinito de redirects login↔admin. Un no-superusuario autenticado
+    # debe recibir 403; solo el anónimo va al login.
+    @wraps(view)
+    def wrapped(request, *args, **kwargs):
+        if request.user.is_superuser:
+            return view(request, *args, **kwargs)
+        if request.user.is_authenticated:
+            raise PermissionDenied
+        return redirect_to_login(request.get_full_path(), reverse('accounts:login'))
+    return wrapped
 
 
 def _client_ip(request):
@@ -229,10 +242,27 @@ def access_admin(request):
         elif action == 'delete_email':
             get_object_or_404(AllowedEmail, pk=request.POST.get('id')).delete()
             messages.success(request, 'Correo eliminado.')
+        elif action == 'set_email_role':
+            obj = get_object_or_404(AllowedEmail, pk=request.POST.get('id'))
+            role = request.POST.get('default_role', '')
+            if role and role not in dict(Role.choices):
+                messages.error(request, 'Rol inválido.')
+            else:
+                obj.default_role = role  # '' = sin rol (cae al default del dominio / EJECUTOR)
+                obj.save(update_fields=['default_role'])
+                messages.success(request, f'Rol de «{obj.email}» actualizado.')
         elif action == 'toggle_user':
             target = get_object_or_404(User, pk=request.POST.get('id'))
             if target.pk == request.user.pk or target.is_superuser:
                 messages.error(request, 'No podés cambiar el estado de este usuario.')
+            elif not target.is_active and not target.has_usable_password():
+                # Todavía no activó su cuenta (sin contraseña): no se puede activar a mano,
+                # tiene que pasar por el enlace de invitación (ver activate()/request_access()).
+                messages.error(
+                    request,
+                    f'«{target.email or target.username}» todavía no activó su cuenta. '
+                    'Usá «Reenviar invitación» en vez de activarla directamente.',
+                )
             else:
                 target.is_active = not target.is_active
                 target.save(update_fields=['is_active'])
@@ -245,12 +275,33 @@ def access_admin(request):
             else:
                 _send_activation_email(request, target)
                 messages.success(request, f'Invitación reenviada a «{target.email}».')
+        elif action == 'delete_user':
+            target = get_object_or_404(User, pk=request.POST.get('id'))
+            label = target.email or target.username
+            if target.pk == request.user.pk or target.is_superuser:
+                messages.error(request, 'No podés eliminar este usuario.')
+            else:
+                from tickets.models import Assignment
+                if Assignment.objects.filter(user=target).exists():
+                    messages.error(
+                        request,
+                        f'«{label}» tiene tickets asignados (historial de trabajo/tiempos). '
+                        'Desactivá la cuenta en vez de eliminarla para no perder ese historial.',
+                    )
+                else:
+                    target.delete()
+                    messages.success(request, f'Cuenta «{label}» eliminada.')
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            pending = list(messages.get_messages(request))
+            last = pending[-1] if pending else None
+            return JsonResponse({'message': str(last) if last else '', 'tag': last.tags if last else ''})
         return redirect('accounts:access_admin')
 
     users_qs = User.objects.select_related('profile').order_by('is_active', 'email')
     return render(request, 'accounts/access_admin.html', {
         'domains': AllowedDomain.objects.all(),
         'emails': AllowedEmail.objects.all(),
+        'role_choices': Role.choices,
         'users': Paginator(users_qs, 20).get_page(request.GET.get('page')),
         'domain_form': AllowedDomainForm(),
         'email_form': AllowedEmailForm(),

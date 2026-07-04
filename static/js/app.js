@@ -24,6 +24,22 @@
     }
   });
 
+  // Checkboxes con data-auto-submit (ej. toggles de estado): al cambiar, envían su form.
+  // data-label-on/off (opcional): texto del title según el nuevo estado.
+  function syncToggleLabel(el) {
+    if (el.dataset.labelOn && el.dataset.labelOff) {
+      el.title = el.checked ? el.dataset.labelOn : el.dataset.labelOff;
+    }
+  }
+
+  document.addEventListener('change', function (ev) {
+    var el = ev.target;
+    if (!el.matches('[data-auto-submit]')) return;
+    syncToggleLabel(el);
+    var form = el.closest('form');
+    if (form) { if (form.requestSubmit) form.requestSubmit(); else form.submit(); }
+  });
+
   // Formularios con data-confirm: modal propio en vez del confirm() nativo del navegador.
   var confirmModal, confirmMsg, confirmOkBtn, pendingForm;
 
@@ -54,5 +70,39 @@
     confirmMsg.textContent = form.getAttribute('data-confirm');
     pendingForm = form;
     modal.showModal();
+  });
+
+  // Formularios con data-ajax: se envían por fetch (sin recargar la página) y el
+  // resultado se muestra como toast usando el mismo mensaje que devolvería Django.
+  function revertToggle(form) {
+    var el = form.querySelector('[data-auto-submit]');
+    if (!el) return;
+    el.checked = !el.checked;
+    syncToggleLabel(el);
+  }
+
+  document.addEventListener('submit', function (ev) {
+    var form = ev.target;
+    if (!form.matches('[data-ajax]')) return;
+    ev.preventDefault();
+    var btn = form.querySelector('button, [data-auto-submit]');
+    if (btn) btn.disabled = true;
+    fetch(form.action || window.location.href, {
+      method: 'POST',
+      body: new FormData(form),
+      headers: { 'X-Requested-With': 'XMLHttpRequest' },
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.tag === 'error') revertToggle(form);
+        if (!window.Alert || !data.message) return;
+        var type = data.tag === 'debug' ? 'info' : (data.tag || 'info');
+        Alert.show(data.message, type, { autoHide: 5000 });
+      })
+      .catch(function () {
+        revertToggle(form);
+        if (window.Alert) Alert.error('No se pudo completar la acción.');
+      })
+      .finally(function () { if (btn) btn.disabled = false; });
   });
 })();

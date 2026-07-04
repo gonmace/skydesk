@@ -29,6 +29,16 @@ class Attachment(models.Model):
     )
     created = models.DateTimeField(auto_now_add=True)
 
+    # Versionado de anotaciones: una anotación guarda el PNG resultante de dibujar
+    # sobre la imagen original. `version_of` apunta al adjunto anterior del que deriva
+    # (permite reconstruir el historial de versiones); `version_number` es 1 para la
+    # original y N+1 para cada anotación sucesiva.
+    version_of = models.ForeignKey(
+        'self', null=True, blank=True,
+        on_delete=models.SET_NULL, related_name='versions',
+    )
+    version_number = models.PositiveIntegerField('Versión', default=1)
+
     class Meta:
         ordering = ['-created']
         indexes = [models.Index(fields=['content_type', 'object_id'])]

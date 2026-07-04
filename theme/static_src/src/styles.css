@@ -1,10 +1,12 @@
 @import "tailwindcss";
-@source not "../static";
+@custom-variant dark (&:where([data-theme="dark"] *));
+@source not "../static/css";
 @source "../../../templates";
 @source "../../../attachments";
 @source "../../../accounts";
 @source "../../../tickets";
 @source "../../../notifications";
+@source "../../../static/js";
 @plugin "@tailwindcss/forms";
 @plugin "@tailwindcss/typography";
 @plugin "daisyui" {
@@ -44,9 +46,11 @@
 @plugin "daisyui/theme" {
   name: "dark";
   color-scheme: dark;
-  --color-base-100: #1E1819;                /* negro calido, matiz rojo */
-  --color-base-200: #272022;
-  --color-base-300: #342D2E;
+  /* Jerarquía invertida respecto a light: el fondo (app-shell) es lo más oscuro
+     y las cards (base-100) flotan más claras encima. */
+  --color-base-100: #272122;                /* negro calido, matiz rojo */
+  --color-base-200: #342C2E;
+  --color-base-300: #463C3E;
   --color-base-content: #F4F0F1;
   --color-primary: #FF2233;  --color-primary-content: #fff;
   --color-secondary: #B9B0B2;--color-secondary-content: #1E1819;
@@ -202,9 +206,10 @@
     0 8px 20px rgba(0, 0, 0, 0.25);
 }
 
-/* En dark, el fondo de la app usa base-300 (en light se mantiene base-200) */
+/* En dark el fondo de la app es MÁS OSCURO que las cards (elevación estándar de
+   dark mode: superficie elevada = más clara); en light se mantiene base-200. */
 [data-theme="dark"] .app-shell {
-  background-color: var(--color-base-300);
+  background-color: #181314;
 }
 
 /* ── Borde de la card por ESTADO (data-status) — mismo mapeo que el punto de la
@@ -340,6 +345,19 @@
 .label-chip[data-color="secondary"] { background: color-mix(in srgb, var(--color-secondary) 15%, transparent); color: var(--color-secondary); border-color: color-mix(in srgb, var(--color-secondary) 30%, transparent); }
 [data-theme="dark"] .label-chip[data-color="neutral"] { color: var(--color-base-content); }
 
+/* ── Badge de estado BACKLOG (Entrada) — chip "tinta" en light; en dark el chip
+   blanco encandila, así que pasa a gris suave con texto claro ────────────────── */
+.badge-backlog {
+  background-color: var(--color-base-content);
+  color: var(--color-base-100);
+  border-color: color-mix(in oklab, var(--color-base-100) 25%, transparent);
+}
+[data-theme="dark"] .badge-backlog {
+  background-color: color-mix(in oklab, var(--color-base-content) 18%, var(--color-base-100));
+  color: var(--color-base-content);
+  border-color: color-mix(in oklab, var(--color-base-content) 30%, transparent);
+}
+
 /* ── Badge gris sólido (prioridad Baja) — adaptado a claro/oscuro ───────────── */
 .badge-gray {
   background-color: color-mix(in oklab, var(--color-base-content) 22%, var(--color-base-100)) !important;
@@ -353,6 +371,7 @@
   background-color: color-mix(in srgb, var(--role-color) 15%, transparent) !important;
   color: var(--role-color) !important;
   border-color: color-mix(in srgb, var(--role-color) 30%, transparent) !important;
+  white-space: nowrap; /* en columnas angostas la pastilla no debe partirse en dos líneas */
 }
 .badge-role[data-role="COORDINADOR"] { --role-color: var(--color-primary); }
 .badge-role[data-role="EXPERTO"]     { --role-color: var(--color-info); }
@@ -377,6 +396,15 @@
 .avatar-user[data-avatar-color="5"] { background: hsl(220 70% 90%); color: hsl(220 55% 35%); border-color: hsl(220 55% 78%); }
 .avatar-user[data-avatar-color="6"] { background: hsl(265 60% 90%); color: hsl(265 45% 35%); border-color: hsl(265 45% 78%); }
 .avatar-user[data-avatar-color="7"] { background: hsl(320 65% 90%); color: hsl(320 45% 35%); border-color: hsl(320 45% 78%); }
+/* En dark los pastel claros encandilan — mismo matiz, fondo oscuro y texto claro */
+[data-theme="dark"] .avatar-user[data-avatar-color="0"] { background: hsl(0 40% 24%);   color: hsl(0 75% 84%);   border-color: hsl(0 40% 38%); }
+[data-theme="dark"] .avatar-user[data-avatar-color="1"] { background: hsl(42 45% 22%);  color: hsl(45 70% 78%);  border-color: hsl(45 45% 36%); }
+[data-theme="dark"] .avatar-user[data-avatar-color="2"] { background: hsl(90 35% 20%);  color: hsl(90 50% 78%);  border-color: hsl(90 35% 34%); }
+[data-theme="dark"] .avatar-user[data-avatar-color="3"] { background: hsl(150 35% 19%); color: hsl(150 50% 76%); border-color: hsl(150 35% 33%); }
+[data-theme="dark"] .avatar-user[data-avatar-color="4"] { background: hsl(195 45% 20%); color: hsl(190 60% 78%); border-color: hsl(190 45% 34%); }
+[data-theme="dark"] .avatar-user[data-avatar-color="5"] { background: hsl(220 45% 25%); color: hsl(220 70% 84%); border-color: hsl(220 45% 40%); }
+[data-theme="dark"] .avatar-user[data-avatar-color="6"] { background: hsl(265 35% 26%); color: hsl(265 60% 86%); border-color: hsl(265 35% 42%); }
+[data-theme="dark"] .avatar-user[data-avatar-color="7"] { background: hsl(320 35% 24%); color: hsl(320 55% 84%); border-color: hsl(320 35% 38%); }
 
 /* ── Pila de avatares superpuestos — cada uno tapa al anterior, con anillo que
    los separa visualmente del fondo de la tarjeta ─────────────────────────── */
@@ -394,13 +422,27 @@
 .avatar-stack > .avatar-user:nth-child(8) { z-index: 8; }
 
 /* ── Vínculo entre cards del mismo ticket (tablero de subticket, multiproducto con
-   varios ejecutores) — punto "status" con ping (mismos 8 tonos que el avatar) en vez
-   de un borde, para no competir con el resto de la card. */
-.ticket-link-dot[data-link-color="0"] { background-color: hsl(0 70% 55%); }
-.ticket-link-dot[data-link-color="1"] { background-color: hsl(45 75% 50%); }
-.ticket-link-dot[data-link-color="2"] { background-color: hsl(90 55% 45%); }
-.ticket-link-dot[data-link-color="3"] { background-color: hsl(150 55% 40%); }
-.ticket-link-dot[data-link-color="4"] { background-color: hsl(190 65% 42%); }
-.ticket-link-dot[data-link-color="5"] { background-color: hsl(220 70% 55%); }
-.ticket-link-dot[data-link-color="6"] { background-color: hsl(265 60% 55%); }
-.ticket-link-dot[data-link-color="7"] { background-color: hsl(320 65% 50%); }
+   varios ejecutores) — pestaña de color en el borde DERECHO, centrada a media altura:
+   mismo tono (8 variantes bien separadas por 45° de tono) en todas las cards del mismo
+   ticket. No compite con el borde izquierdo, que ya codifica el estado. */
+.ticket-card[data-link-color] { position: relative; }
+.ticket-card[data-link-color]::after {
+  content: '';
+  position: absolute;
+  right: -2.5px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 5px;
+  height: 45%;
+  min-height: 1.5rem;
+  border-radius: 9999px;
+  background-color: var(--link-color);
+}
+.ticket-card[data-link-color="0"] { --link-color: hsl(0 75% 50%); }     /* rojo */
+.ticket-card[data-link-color="1"] { --link-color: hsl(45 85% 50%); }     /* naranja */
+.ticket-card[data-link-color="2"] { --link-color: hsl(60 85% 45%); }     /* amarillo */
+.ticket-card[data-link-color="3"] { --link-color: hsl(135 70% 40%); }    /* verde */
+.ticket-card[data-link-color="4"] { --link-color: hsl(190 75% 45%); }    /* cian */
+.ticket-card[data-link-color="5"] { --link-color: hsl(230 70% 55%); }    /* azul */
+.ticket-card[data-link-color="6"] { --link-color: hsl(280 65% 55%); }    /* violeta */
+.ticket-card[data-link-color="7"] { --link-color: hsl(320 75% 50%); }     /* magenta */

@@ -16,4 +16,7 @@
     </select>
   {% endif %}
   <a href="{{ request.path }}" class="btn btn-ghost btn-sm" data-board-clear>Limpiar</a>
+  {% if show_status_legend %}
+   <label for="status-legend-toggle" class="btn btn-info btn-outline btn-sm btn-circle ml-auto" title="¿Qué ve cada rol en el tablero?" aria-label="¿Qué ve cada rol en el tablero?">?</label>
+  {% endif %}
 </form>

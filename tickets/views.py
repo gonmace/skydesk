@@ -1,4 +1,5 @@
 import json
+import logging
 from datetime import timedelta
 
 from django.contrib import messages
@@ -13,14 +14,19 @@ from django.db.models import (
 )
 from django.db.models.functions import TruncWeek
 from django.http import (
-    Http404, HttpResponse, HttpResponseBadRequest, JsonResponse, StreamingHttpResponse,
+    Http404, HttpResponse, HttpResponseBadRequest, HttpResponseNotModified, JsonResponse,
+    StreamingHttpResponse,
 )
 from django.shortcuts import get_object_or_404, redirect, render
+from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from accounts.permissions import has_capability, require_capability, users_with_capability
+from accounts.models import Role
+from accounts.permissions import (
+    has_capability, require_capability, roles_with_capability, users_with_capability,
+)
 from attachments import services as attachment_services
 
 from django.contrib.auth import get_user_model
@@ -30,6 +36,8 @@ from notifications.services import notify
 from .forms import CommentForm, ProjectForm, TicketForm
 from .models import Assignment, Comment, Label, Project, Ticket, TicketEvent
 from .realtime import broadcast_board
+
+logger = logging.getLogger(__name__)
 
 User = get_user_model()
 
@@ -137,7 +145,7 @@ def _ticket_people(ticket):
 
 def _notify_backlog_to_todo(actor, ticket):
     """Avisa a todos los involucrados —menos quien hizo el cambio— que el ticket salió
-    de "Necesidad" (BACKLOG, bandeja exclusiva del coordinador) hacia "Por hacer"."""
+    de "Entrada" (BACKLOG, bandeja exclusiva del coordinador) hacia "Por hacer"."""
     for u in _ticket_people(ticket):
         if u.pk != actor.pk:
             notify(u, 'puso en Por hacer', actor=actor, ticket=ticket)
@@ -164,7 +172,7 @@ def _notify_new_comment(request, ticket, comment):
 def _visible_statuses(user):
     """Columnas del tablero para `user`.
 
-    - "Necesidad" (BACKLOG): solo quien puede asignar (Coordinador) — es la bandeja de
+    - "Entrada" (BACKLOG): solo quien puede asignar (Coordinador) — es la bandeja de
       tickets sin ejecutor, no aporta a Ejecutor/Experto/Seguimiento.
     - "Suspendido/Cancelado" (WAITING): solo Coordinador y Seguimiento
       (`tickets.view_waiting`) — a Experto y Ejecutor no les aporta y para el Ejecutor
@@ -177,6 +185,45 @@ def _visible_statuses(user):
     if not has_capability(user, 'tickets.view_waiting'):
         hidden.add(Ticket.Status.WAITING)
     return [(v, l) for v, l in Ticket.Status.choices if v not in hidden]
+
+
+def _status_visibility_legend():
+    """Para el botón de ayuda «?» del tablero: qué columnas ve cada rol, agrupando los
+    roles que ven exactamente el mismo rango — mismo criterio que `_visible_statuses`,
+    pero a nivel de rol (política general vía `RolePermission`), no del usuario logueado.
+    `statuses` son las 5 columnas en orden fijo; cada `row` marca su tramo visible con
+    índices `start`/`end` sobre esa lista, para dibujar el corchete horizontal."""
+    can_assign = roles_with_capability('tickets.assign')
+    can_view_waiting = roles_with_capability('tickets.view_waiting')
+    statuses = list(Ticket.Status.choices)
+    groups = {}
+    for role in Role:
+        hidden = set()
+        if role not in can_assign:
+            hidden.add(Ticket.Status.BACKLOG)
+        if role not in can_view_waiting:
+            hidden.add(Ticket.Status.WAITING)
+        visible_idx = [i for i, (v, _l) in enumerate(statuses) if v not in hidden]
+        if not visible_idx:
+            continue
+        groups.setdefault((min(visible_idx), max(visible_idx)), []).append(role.label)
+    rows = [
+        {'label': ' / '.join(labels), 'start': start, 'end': end}
+        for (start, end), labels in groups.items()
+    ]
+    rows.sort(key=lambda r: (r['start'], -(r['end'] - r['start'])))
+    return {'statuses': statuses, 'rows': rows}
+
+
+def _base_ticket_number(ticket):
+    """Número global del código (SKY-0014 → 14, SKY-0014-1 → 14, SKY-0014-1-1 → 14) —
+    orden por defecto de las cards del tablero: agrupa a un ticket con TODAS sus partes/
+    derivados bajo el mismo número, en vez de por su propio pk (que depende de cuándo se
+    creó ESE hijo puntual, no de a qué ticket pertenece)."""
+    parts = (ticket.code or '').split('-')
+    if len(parts) >= 2 and parts[1].isdigit():
+        return int(parts[1])
+    return ticket.pk
 
 
 def _subticket_cards(visible, statuses, *, viewer):
@@ -201,15 +248,19 @@ def _subticket_cards(visible, statuses, *, viewer):
     # cuando de verdad queda más de una card repartida en columnas distintas — si todos
     # los ejecutores están alineados en el mismo estado (se fusionan en una sola card),
     # el punto no aporta nada porque ya no hay nada que vincular.
+    # El índice de color deriva del hash del ticket_id: la multiplicación por 2654435761
+    # (Constante de Knuth para hash entero) dispersa pks consecutivos y así dos padres
+    # cercanos no caen en tonos adyacentes (8 variantes separadas por 45° de tono).
     statuses_by_ticket = {}
     for a in visible:
         statuses_by_ticket.setdefault(a.ticket_id, set()).add(a.status)
     for a in visible:
-        a.link_color = a.ticket_id % 8 if len(statuses_by_ticket[a.ticket_id]) > 1 else None
+        a.link_color = ((a.ticket_id * 2654435761) & 0xFFFFFFFF) % 8 \
+            if len(statuses_by_ticket[a.ticket_id]) > 1 else None
     by_status = {}
     for value, _label in statuses:
         items = [a for a in visible if a.status == value]
-        items.sort(key=lambda a: (a.is_ghost, a.position, -a.pk))
+        items.sort(key=lambda a: (a.is_ghost, a.position, _base_ticket_number(a.ticket)))
         by_ticket = {}
         for a in items:
             by_ticket.setdefault(a.ticket_id, []).append(a)
@@ -248,7 +299,7 @@ def _parent_columns(request):
         num_comments=Count('comments', distinct=True),
         num_attachments=Count('attachments', distinct=True),
         num_children=Count('children', distinct=True),
-    ).prefetch_related('labels', 'assignments__user__profile', 'children'))
+    ).prefetch_related('labels', 'assignments__user__profile', 'children', 'parent__children'))
     # Coordinador (tickets.assign): ve todos, pero primero los propios (reporter o
     # participante) y el resto con la card apagada. Experto ya solo ve los suyos (no
     # tiene view_all) y Seguimiento ve todo por igual — a ninguno de los dos se le
@@ -295,9 +346,9 @@ def _parent_columns(request):
     for value, label in statuses:
         col = [t for t in ticket_entries if t.display_status == value]
         if highlight_own:
-            col.sort(key=lambda t: (t.is_muted, t.position, -t.pk))
+            col.sort(key=lambda t: (t.is_muted, t.position, _base_ticket_number(t)))
         else:
-            col.sort(key=lambda t: (t.position, -t.pk))
+            col.sort(key=lambda t: (t.position, _base_ticket_number(t)))
         items = [{'type': 'ticket', 't': t} for t in col] + subticket_by_status[value]
         columns.append({'value': value, 'label': label, 'items': items, 'count': len(items)})
     return columns
@@ -319,7 +370,7 @@ def _executor_columns(request):
     assignments = Assignment.objects.filter(
         ticket_id__in=tids, kind=Assignment.Kind.EJECUTOR,
     ).select_related('ticket', 'ticket__project', 'ticket__parent', 'user', 'user__profile').prefetch_related(
-        'ticket__labels', 'ticket__assignments__user__profile', 'ticket__children',
+        'ticket__labels', 'ticket__assignments__user__profile', 'ticket__children', 'ticket__parent__children',
     )
     # Colaborativa (sin subproductos): solo se ve el subticket propio (estado compartido).
     # Con subproductos: se ve el propio (sólido) + los de co-ejecutores (fantasma).
@@ -355,6 +406,11 @@ def board(request):
     ctx.update({
         'filters': _filter_context(request),
         'can_create': has_capability(request.user, 'tickets.create'),
+        'status_legend': _status_visibility_legend(),
+        'show_status_legend': (
+            has_capability(request.user, 'tickets.assign')
+            or has_capability(request.user, 'tickets.view_waiting')
+        ),
     })
     return render(request, 'tickets/board.html', ctx)
 
@@ -404,7 +460,7 @@ def ticket_move(request):
             # executor_assignments haría .filter() y relanzaría una query por ticket.
             ejec = [a for a in ticket.assignments.all() if a.kind == Assignment.Kind.EJECUTOR]
             if status == Ticket.Status.BACKLOG and ejec:
-                continue   # "Necesidad" es la bandeja de tickets sin ejecutor (ver _visible_statuses)
+                continue   # "Entrada" es la bandeja de tickets sin ejecutor (ver _visible_statuses)
             ticket.position = index
             if status_changed:
                 if status in _DRAG_STATUSES and ejec:
@@ -532,7 +588,7 @@ def assignment_conclude(request, pk):
     msg = 'Subticket concluido. Pendiente de aprobación del coordinador.' if a.ticket.has_subproducts \
         else 'Tarea concluida. Pendiente de aprobación del coordinador.'
     messages.success(request, msg)
-    return redirect('tickets:detail', pk=a.ticket_id)
+    return redirect('tickets:board')
 
 
 @login_required
@@ -667,12 +723,53 @@ def _elapsed(assignment):
     return _fmt_delta(delta) or '0m'
 
 
+# Tamaños de página del chat/galería en el detalle del ticket — el resto se trae por
+# fragmentos vía comment_history / chat_attachments_more (botones "cargar más").
+CHAT_PAGE_SIZE = 20
+# 3 filas de 6 columnas (ver el grid de columnas fijas en ticket_detail.html): con
+# flex-wrap fluido "18" no correspondía a un número fijo de filas visuales porque la
+# cantidad de columnas variaba con el ancho de pantalla.
+GALLERY_PAGE_SIZE = 18
+
+
 @login_required
 def ticket_detail(request, pk):
     ticket = get_object_or_404(Ticket.objects.select_related('reporter', 'project', 'parent'), pk=pk)
     if not _can_see_ticket(request.user, ticket):
         raise PermissionDenied
-    comments = ticket.comments.select_related('author', 'author__profile').prefetch_related('attachments')
+    # Seguimiento heredado: el hilo incluye los mensajes/eventos de la cadena de padres
+    # (derivar/dividir), mezclados cronológicamente. El orden por pk sigue siendo orden
+    # de creación global, así que la paginación `before=<pk>` no cambia.
+    thread = ticket.thread_ids()
+    comments_qs = Comment.objects.filter(ticket_id__in=thread).select_related(
+        'author', 'author__profile', 'ticket',
+    ).prefetch_related('attachments')
+    # Solo los últimos CHAT_PAGE_SIZE mensajes (más viejo→más nuevo para el render);
+    # el resto se trae bajo demanda con el botón "Cargar mensajes anteriores".
+    comments = list(comments_qs.order_by('-pk')[:CHAT_PAGE_SIZE])[::-1]
+    for c in comments:
+        c.inherited = c.ticket_id != ticket.pk
+    oldest_comment_pk = comments[0].pk if comments else None
+    has_older_comments = bool(oldest_comment_pk) and comments_qs.filter(pk__lt=oldest_comment_pk).exists()
+
+    # Galería de adjuntos del chat (de TODOS los comentarios, no solo los visibles en
+    # esta página del chat): se muestra como thumbnails debajo del cuadro de
+    # seguimiento. Los del ticket (legados) se muestran aparte.
+    comment_ids = list(comments_qs.values_list('pk', flat=True))
+    if comment_ids:
+        from attachments.models import Attachment
+        from django.contrib.contenttypes.models import ContentType
+        ct = ContentType.objects.get_for_model(Comment)
+        chat_attachments_qs = Attachment.objects.filter(
+            content_type=ct, object_id__in=comment_ids,
+        ).select_related('uploaded_by', 'uploaded_by__profile').order_by('-pk')
+        chat_attachments = list(chat_attachments_qs[:GALLERY_PAGE_SIZE])
+        oldest_attachment_pk = chat_attachments[-1].pk if chat_attachments else None
+        has_more_attachments = bool(oldest_attachment_pk) and chat_attachments_qs.filter(pk__lt=oldest_attachment_pk).exists()
+    else:
+        chat_attachments = []
+        oldest_attachment_pk = None
+        has_more_attachments = False
     can_edit = _can_edit_ticket(request.user, ticket)
     can_archive_perm = _can_archive_ticket(request.user, ticket)
 
@@ -688,19 +785,39 @@ def ticket_detail(request, pk):
     can_close = has_capability(request.user, 'tickets.close')
     pending_approval = any(a.needs_approval for a in executors)
     children = ticket.children.all()
+    # Label "Partes" vs "Derivados" en la lista de hijos (ticket_detail.html): ya no se
+    # puede inferir de `is_split` (Dividir ya no oculta al padre) — se mira directamente
+    # si algún hijo viene de Dividir. Un ticket puede tener hijos de ambos tipos mezclados;
+    # ante esa mezcla se prioriza el label "Partes".
+    children_are_divided = any(c.is_divided_part for c in children)
     split_summary = None
     if ticket.is_split:
         # Rollup de estados de las partes para mostrar en el detalle del contenedor
         # (el contenedor ya no aparece como card en el tablero, ver _visible_tickets).
+        # Solo aplica a tickets divididos ANTES de este cambio (grandfathered): las
+        # divisiones nuevas ya no setean split_at, así que esto nunca se activa para ellas.
         counts = {row['status']: row['n'] for row in children.values('status').annotate(n=Count('pk'))}
         split_summary = [(label, counts[value]) for value, label in Ticket.Status.choices if counts.get(value)]
     can_create = has_capability(request.user, 'tickets.create')
+    events = list(TicketEvent.objects.filter(ticket_id__in=thread).select_related('actor', 'ticket'))
+    for e in events:
+        e.inherited = e.ticket_id != ticket.pk
+    # Códigos de los ancestros (para el encabezado «Seguimiento — incluye SKY-x»).
+    thread_parent_keys = [t.key for t in Ticket.objects.filter(pk__in=thread[1:]).order_by('pk')]
     return render(request, 'tickets/ticket_detail.html', {
         'ticket': ticket,
         'comments': comments,
-        'events': ticket.events.select_related('actor'),
+        'has_older_comments': has_older_comments,
+        'oldest_comment_pk': oldest_comment_pk,
+        'chat_attachments': chat_attachments,
+        'has_more_attachments': has_more_attachments,
+        'oldest_attachment_pk': oldest_attachment_pk,
+        'events': events,
+        'thread': thread,
+        'thread_parent_keys': thread_parent_keys,
         'ticket_attachments': ticket.attachments.all(),
         'children': children,
+        'children_are_divided': children_are_divided,
         'executors': executors,
         'experts': experts,
         'my_assignment': my_assignment,
@@ -711,7 +828,7 @@ def ticket_detail(request, pk):
         'pending_approval': pending_approval,
         'is_split': ticket.is_split,
         'split_summary': split_summary,
-        'parent_is_split': bool(ticket.parent_id and ticket.parent.is_split),
+        'parent_is_split': bool(ticket.is_divided_part or (ticket.parent_id and ticket.parent.is_split)),
         'can_divide': can_create,
         'can_derive': can_create and not ticket.is_split,
         'can_archive': can_archive_perm and ticket.status in (Ticket.Status.DONE, Ticket.Status.WAITING) and not ticket.is_archived,
@@ -719,6 +836,63 @@ def ticket_detail(request, pk):
         'can_suspend': can_close and ticket.status not in (Ticket.Status.DONE,),
         'drag_statuses': _DRAG_STATUSES,
     })
+
+
+@login_required
+def comment_history(request, pk):
+    """Fragmento con los `CHAT_PAGE_SIZE` mensajes anteriores a `?before=<pk>` (más
+    viejos que ese pk), para el botón "Cargar mensajes anteriores" del chat. Los
+    mensajes traídos así nunca son el último real del ticket, por eso se renderizan
+    con `is_last_comment=False` (sin opción de editar/borrar, ver chat_message.html)."""
+    ticket = get_object_or_404(Ticket, pk=pk)
+    if not _can_see_ticket(request.user, ticket):
+        raise PermissionDenied
+    try:
+        before = int(request.GET.get('before', ''))
+    except ValueError:
+        return HttpResponseBadRequest('Falta o es inválido el parámetro «before».')
+    comments_qs = Comment.objects.filter(ticket_id__in=ticket.thread_ids()).select_related(
+        'author', 'author__profile', 'ticket',
+    ).prefetch_related('attachments')
+    older = list(comments_qs.filter(pk__lt=before).order_by('-pk')[:CHAT_PAGE_SIZE])[::-1]
+    for c in older:
+        c.inherited = c.ticket_id != ticket.pk
+    oldest = older[0].pk if older else None
+    has_older = bool(oldest) and comments_qs.filter(pk__lt=oldest).exists()
+    html = render_to_string('tickets/partials/_chat_history_fragment.html', {
+        'comments': older,
+        'can_write_chat': _can_write_chat(request.user, ticket),
+        'can_moderate_chat': has_capability(request.user, 'tickets.edit_any'),
+    }, request=request)
+    return JsonResponse({'ok': True, 'html': html, 'oldest': oldest, 'has_older': has_older})
+
+
+@login_required
+def chat_attachments_more(request, pk):
+    """Fragmento con los `GALLERY_PAGE_SIZE` adjuntos del seguimiento anteriores a
+    `?before=<pk>`, para el botón "Cargar más adjuntos" debajo de la galería."""
+    from attachments.models import Attachment
+    from django.contrib.contenttypes.models import ContentType
+    ticket = get_object_or_404(Ticket, pk=pk)
+    if not _can_see_ticket(request.user, ticket):
+        raise PermissionDenied
+    try:
+        before = int(request.GET.get('before', ''))
+    except ValueError:
+        return HttpResponseBadRequest('Falta o es inválido el parámetro «before».')
+    comment_ids = list(Comment.objects.filter(ticket_id__in=ticket.thread_ids()).values_list('pk', flat=True))
+    ct = ContentType.objects.get_for_model(Comment)
+    qs = Attachment.objects.filter(
+        content_type=ct, object_id__in=comment_ids, pk__lt=before,
+    ).select_related('uploaded_by', 'uploaded_by__profile').order_by('-pk')
+    older = list(qs[:GALLERY_PAGE_SIZE])
+    oldest = older[-1].pk if older else None
+    has_more = bool(oldest) and qs.filter(pk__lt=oldest).exists()
+    html = render_to_string('tickets/partials/_gallery_fragment.html', {
+        'attachments': older,
+        'can_write_chat': _can_write_chat(request.user, ticket),
+    }, request=request)
+    return JsonResponse({'ok': True, 'html': html, 'oldest': oldest, 'has_more': has_more})
 
 
 @login_required
@@ -743,11 +917,21 @@ def comment_add(request, pk):
         broadcast_board(ticket.pk)
     else:
         messages.error(request, 'El mensaje no puede estar vacío.')
-    return redirect('tickets:detail', pk=ticket.pk)
+    # #chat-compose: chat-submit.js devuelve el foco al textarea tras la recarga
+    # (si no, hay que volver a hacer click ahí para seguir escribiendo).
+    return redirect(reverse('tickets:detail', args=[ticket.pk]) + '#chat-compose')
+
+
+def _is_last_comment(comment):
+    return not comment.ticket.comments.filter(pk__gt=comment.pk).exists()
 
 
 def _can_moderate_comment(user, comment):
-    return comment.author_id == user.id or has_capability(user, 'tickets.edit_any')
+    if comment.author_id != user.id and not has_capability(user, 'tickets.edit_any'):
+        return False
+    # Solo el último mensaje del seguimiento se puede editar/borrar; los
+    # anteriores quedan inmutables como registro de la conversación.
+    return _is_last_comment(comment)
 
 
 @login_required
@@ -796,12 +980,47 @@ def _store_files(request, ticket_or_comment, target):
 
 @login_required
 @require_POST
-def attachment_add(request, pk):
-    ticket = get_object_or_404(Ticket, pk=pk)
-    if not _can_write_chat(request.user, ticket):
+def attachment_annotate(request, pk):
+    """Guarda una nueva versión de la imagen `pk` con las anotaciones hechas en el
+    modal (PNG resultante de dibujar a mano alzada sobre la original), publicada
+    como un mensaje nuevo del chat a nombre de quien anota —igual que si hubiera
+    adjuntado la imagen anotada a un mensaje propio— en vez de colgar en silencio
+    del comentario original (que puede ser de otro usuario)."""
+    from attachments.models import Attachment
+    attachment = get_object_or_404(Attachment, pk=pk)
+    if not attachment.is_image:
+        return HttpResponseBadRequest('Solo se pueden anotar imágenes.')
+    ticket = _owning_ticket(attachment)
+    if ticket is None or not _can_write_chat(request.user, ticket):
         raise PermissionDenied
-    _store_files(request, ticket, target=ticket)
-    return redirect('tickets:detail', pk=ticket.pk)
+    png = request.FILES.get('image')
+    if not png:
+        return HttpResponseBadRequest('Falta la imagen anotada.')
+    try:
+        with transaction.atomic():
+            comment = Comment.objects.create(ticket=ticket, author=request.user, body='')
+            new_version = attachment_services.store_version(
+                attachment, png_bytes=png.read(), owner=request.user, content_object=comment,
+            )
+    except attachment_services.DuplicateAttachment:
+        return JsonResponse({'ok': False, 'error': 'Esa versión ya existe.'}, status=409)
+    except ValidationError as exc:
+        return JsonResponse({'ok': False, 'error': exc.messages[0]}, status=400)
+    except Exception:
+        # Backend de almacenamiento caído/inaccesible: el atomic ya revirtió el
+        # comentario — avisar en el modal en vez de 500 (mismo criterio que
+        # _store_files/attachment_delete).
+        logger.exception('No se pudo guardar la anotación del adjunto %s', pk)
+        return JsonResponse(
+            {'ok': False, 'error': 'No se pudo guardar la imagen: el almacenamiento no responde. Probá de nuevo en unos minutos.'},
+            status=502,
+        )
+    _notify_new_comment(request, ticket, comment)
+    for u in _ticket_people(ticket):
+        if u.pk != request.user.pk:
+            notify(u, 'comentó en', actor=request.user, ticket=ticket)
+    broadcast_board(ticket.pk)
+    return JsonResponse({'ok': True, 'id': new_version.pk})
 
 
 @login_required
@@ -811,6 +1030,10 @@ def attachment_delete(request, pk):
     attachment = get_object_or_404(Attachment, pk=pk)
     ticket = _owning_ticket(attachment)
     if ticket is None or not _can_write_chat(request.user, ticket):
+        raise PermissionDenied
+    owner = attachment.content_object
+    # Igual que el mensaje: los adjuntos de comentarios antiguos son inmutables.
+    if isinstance(owner, Comment) and not _is_last_comment(owner):
         raise PermissionDenied
     try:
         attachment.delete()  # borra el blob remoto + la fila (post_delete, ver signals.py)
@@ -827,6 +1050,12 @@ def attachment_serve(request, pk):
     ticket = _owning_ticket(attachment)
     if ticket is None or not _can_see_ticket(request.user, ticket):
         raise PermissionDenied
+    # El blob es inmutable por versión (anotar crea una versión nueva, no muta la existente),
+    # así que el sha256 sirve de ETag estable — evita re-descargar de Nextcloud en cada
+    # revalidación (antes cada request, incluso repetida, volvía a pegarle al backend remoto).
+    etag = f'"{attachment.sha256}"' if attachment.sha256 else None
+    if etag and request.headers.get('If-None-Match') == etag:
+        return HttpResponseNotModified()
     try:
         stream, content_type = attachment_services.open_blob(attachment)
     except Exception:
@@ -840,6 +1069,11 @@ def attachment_serve(request, pk):
     # Defensa en profundidad: aunque la CSP global no cubra esta respuesta, sandboxea
     # cualquier contenido activo que se cuele (scripts, forms, popups).
     response['Content-Security-Policy'] = "sandbox"
+    # `private`: la respuesta pasó por un chequeo de permisos por usuario, no debe
+    # cachearla ningún proxy/CDN compartido — solo el navegador del propio usuario.
+    response['Cache-Control'] = 'private, max-age=86400'
+    if etag:
+        response['ETag'] = etag
     return response
 
 
@@ -851,11 +1085,19 @@ def attachment_thumb(request, pk):
     ticket = _owning_ticket(attachment)
     if ticket is None or not _can_see_ticket(request.user, ticket):
         raise PermissionDenied
+    # El thumbnail está indexado por sha256 (ver attachments/thumbnails.py) — inmutable,
+    # así que sirve como ETag estable para que la revalidación del navegador sea un 304
+    # barato en vez de releer/regenerar el PNG.
+    etag = f'"{attachment.sha256}"' if attachment.sha256 else None
+    if etag and request.headers.get('If-None-Match') == etag:
+        return HttpResponseNotModified()
     png = thumbnails.get_thumbnail(attachment)
     if not png:
         raise Http404('Sin thumbnail.')
     resp = HttpResponse(png, content_type='image/png')
     resp['Cache-Control'] = 'private, max-age=86400'
+    if etag:
+        resp['ETag'] = etag
     return resp
 
 
@@ -869,7 +1111,7 @@ def _sync_assignments(ticket, executor_users, expert_users, status=Ticket.Status
     pisa para que el hijo nazca — y se mantenga, tras el recompute_status() de abajo — en el
     mismo estado que el padre). `recompute=False` deja el status del ticket (y de los
     Assignment nuevos, vía `status`) tal cual quedaron — lo usa la creación para que un
-    ticket recién creado por el coordinador quede siempre en «Necesidad», aunque ya se
+    ticket recién creado por el coordinador quede siempre en «Entrada», aunque ya se
     hayan marcado ejecutores/expertos en el mismo formulario."""
     desired = {}
     for u in expert_users:
@@ -916,20 +1158,21 @@ def ticket_create(request):
             form.save_m2m()
             _log(ticket, request.user, 'created', 'creó el ticket')
             if can_assign:
-                # Un ticket recién creado siempre queda en «Necesidad», aunque ya se hayan
-                # marcado ejecutores/expertos acá mismo — recompute=False evita que
-                # _sync_assignments lo salte a «Por hacer» (eso pasa recién en una edición
-                # posterior). Los Assignment nuevos nacen en BACKLOG para que, si el ticket
-                # tiene subproductos, sus cards no aparezcan igual en «Por hacer».
+                # Si ya se designó ejecutor(es) en el mismo formulario, el ticket pasa
+                # directo a «Por hacer» (mismo criterio que una edición posterior) — solo
+                # queda en «Entrada» cuando se crea sin ejecutores.
                 added, _kept, _removed = _sync_assignments(ticket, form.cleaned_data.get('executors', []),
-                                                           form.cleaned_data.get('experts', []),
-                                                           status=Ticket.Status.BACKLOG, recompute=False)
+                                                           form.cleaned_data.get('experts', []))
                 _notify_assignment(request, ticket, added)
             messages.success(request, f'{ticket.key} creado.')
             return redirect('tickets:detail', pk=ticket.pk)
     else:
         form = TicketForm(can_assign=can_assign)
-    return render(request, 'tickets/ticket_form.html', {'form': form, 'creating': True})
+    return render(request, 'tickets/ticket_form.html', {
+        'form': form, 'creating': True,
+        'can_manage_labels': has_capability(request.user, 'tickets.edit_any'),
+        'label_colors': Label.Color.choices,
+    })
 
 
 @login_required
@@ -973,7 +1216,11 @@ def ticket_edit(request, pk):
             return redirect('tickets:detail', pk=ticket.pk)
     else:
         form = TicketForm(instance=ticket, can_assign=can_assign)
-    return render(request, 'tickets/ticket_form.html', {'form': form, 'creating': False, 'ticket': ticket})
+    return render(request, 'tickets/ticket_form.html', {
+        'form': form, 'creating': False, 'ticket': ticket,
+        'can_manage_labels': has_capability(request.user, 'tickets.edit_any'),
+        'label_colors': Label.Color.choices,
+    })
 
 
 # ── Derivación / Archivado ─────────────────────────────────────────────────────
@@ -988,14 +1235,23 @@ def _can_archive_ticket(user, ticket):
             or ticket.reporter_id == user.id or ticket.is_participant(user))
 
 
-def _spawn_child(request, parent, *, title_suffix):
+def _spawn_child(request, parent, *, title_suffix, clone_content=False):
     """Crea un hijo con código jerárquico (SKY-0014-N) heredando labels y asignados del
-    padre. Común a «Derivar» (padre sigue activo) y «Dividir» (padre pasa a contenedor)."""
+    padre. Común a «Derivar» (padre sigue activo, tarea nueva a completar a mano) y
+    «Dividir» (padre pasa a contenedor, `clone_content=True`: la parte debe nacer idéntica
+    al padre, no una plantilla vacía)."""
     child = parent.create_child(
-        title=f'{parent.title} {title_suffix}',
+        title=parent.title if clone_content else f'{parent.title} {title_suffix}',
         solicitante=parent.solicitante,
+        description=parent.description if clone_content else '',
+        priority=parent.priority if clone_content else Ticket.Priority.MEDIUM,
+        due_date=parent.due_date if clone_content else None,
+        has_subproducts=parent.has_subproducts if clone_content else False,
+        is_divided_part=clone_content,
         project=parent.project,
-        reporter=request.user,
+        # Al dividir, el reporter original se conserva (es el mismo pedido partido en
+        # partes); al derivar es una tarea nueva, la reporta quien la crea.
+        reporter=parent.reporter if clone_content else request.user,
         status=parent.status,
         # Hereda el candado del coordinador: sin esto, el hijo de un ticket suspendido
         # nacía en la columna Suspendido/Cancelado pero SIN suspended_at — la card se
@@ -1003,8 +1259,9 @@ def _spawn_child(request, parent, *, title_suffix):
         suspended_at=parent.suspended_at,
     )
     child.labels.set(parent.labels.all())
-    executor_users = [a.user for a in parent.executor_assignments]
-    expert_users = [a.user for a in parent.expert_assignments]
+    parent_assignments = list(parent.assignments.select_related('user'))
+    executor_users = [a.user for a in parent_assignments if a.is_executor]
+    expert_users = [a.user for a in parent_assignments if not a.is_executor]
     # El hijo nace en la misma columna que el padre: los Assignment nuevos arrancan en
     # `parent.status` (no en TODO) para que el recompute_status() de _sync_assignments
     # derive ese mismo estado — y, a diferencia de pisar `child.status` por fuera, se
@@ -1013,13 +1270,42 @@ def _spawn_child(request, parent, *, title_suffix):
     # no permite que esto ocurra, pero se mantiene como defensa en profundidad ante otras
     # vías de mutación futuras.
     child_assignment_status = parent.status if parent.status in _DRAG_STATUSES else Ticket.Status.TODO
-    added, _kept, _removed = _sync_assignments(child, executor_users, expert_users, status=child_assignment_status)
+    added, _kept, _removed = _sync_assignments(
+        child, executor_users, expert_users, status=child_assignment_status,
+        # Al clonar, el estado final del ticket lo fija el bloque de abajo tal cual el
+        # padre — dejar que recompute_status() lo derive de las asignaciones es lo que
+        # rompía «mismo estado»: esa función nunca deriva BACKLOG habiendo algún
+        # ejecutor asignado, así que un padre en Entrada con un ejecutor ya cargado
+        # (estado legado/inconsistente) recomputaba la parte a «Por hacer».
+        recompute=not clone_content,
+    )
+    if clone_content:
+        # Copiar también el progreso real de cada asignación (no solo el status inicial):
+        # sin esto, un padre Concluido-y-aprobado dejaba la asignación de la parte sin
+        # approved_at, y el estado forzado más abajo quedaría inconsistente con sus propias
+        # asignaciones (se vería «Concluido» pero con «pendiente de aprobación» sin sentido).
+        by_user = {a.user_id: a for a in parent_assignments}
+        for ca in child.assignments.all():
+            pa = by_user.get(ca.user_id)
+            if pa:
+                ca.status = pa.status
+                ca.started_at = pa.started_at
+                ca.closed_date = pa.closed_date
+                ca.conclusion = pa.conclusion
+                ca.approved_at = pa.approved_at
+                ca.save(update_fields=['status', 'started_at', 'closed_date', 'conclusion', 'approved_at'])
+        # Estado idéntico al padre, fijado directamente (no recalculado): "mismo estado"
+        # significa reproducirlo tal cual, no la versión que recompute_status() derivaría.
+        child.status = parent.status
+        child.closed_date = parent.closed_date
+        child.save(update_fields=['status', 'closed_date', 'updated'])
     _notify_assignment(request, child, added)
     return child
 
 
 @login_required
 @require_capability('tickets.create')
+@require_POST
 def ticket_derive(request, pk):
     """Desprende una subtarea subordinada: el padre sigue activo en el tablero."""
     with transaction.atomic():
@@ -1033,20 +1319,19 @@ def ticket_derive(request, pk):
 
 @login_required
 @require_capability('tickets.create')
+@require_POST
 def ticket_divide(request, pk):
-    """Descompone el ticket en partes hermanas (-1, -2…): el original pasa a ser un
-    contenedor oculto del tablero — deja de ser una card activa, solo se ven las partes."""
+    """Crea una parte hermana (-1, -2…) idéntica en contenido y estado al original — el
+    original sigue activo tal cual, no se oculta ni se borra. Cada click agrega una parte
+    más."""
     with transaction.atomic():
         parent = get_object_or_404(Ticket, pk=pk)
         parent = _lock_ticket(parent.pk)
-        child = _spawn_child(request, parent, title_suffix='(parte)')
-        if not parent.is_split:
-            parent.split_at = timezone.now()
-            parent.save(update_fields=['split_at', 'updated'])
-            _log(parent, request.user, 'split', 'dividido en partes')
+        child = _spawn_child(request, parent, title_suffix='(parte)', clone_content=True)
+        _log(parent, request.user, 'split', 'dividido en partes')
         _log(child, request.user, 'created', f'parte de {parent.key}')
-    messages.success(request, f'{child.key} creado (parte de {parent.key}). Completá los datos.')
-    return redirect('tickets:edit', pk=child.pk)
+    messages.success(request, f'{child.key} creado (parte idéntica de {parent.key}).')
+    return redirect('tickets:board')
 
 
 @login_required
@@ -1062,6 +1347,30 @@ def ticket_archive(request, pk):
         ticket.save(update_fields=['archived_at', 'updated'])
         _log(ticket, request.user, 'archived', 'archivó el ticket')
         messages.success(request, f'{ticket.key} archivado.')
+    return redirect('tickets:board')
+
+
+@login_required
+@require_POST
+def ticket_delete(request, pk):
+    """Borrado definitivo (BD + blobs de adjuntos en cascada). Solo superuser;
+    los derivados sobreviven con parent=NULL (SET_NULL) — son trabajo real."""
+    if not request.user.is_superuser:
+        raise PermissionDenied
+    ticket = get_object_or_404(Ticket, pk=pk)
+    key = ticket.key
+    try:
+        ticket.delete()
+    except Exception:
+        # Backend de adjuntos caído: el post_delete de Attachment propaga y Django
+        # revierte el delete completo — avisar en vez de 500 (mismo criterio que
+        # attachment_delete / comment_delete).
+        logger.exception('No se pudo eliminar el ticket %s', key)
+        messages.error(request, f'No se pudo eliminar {key} (error de almacenamiento al borrar sus adjuntos).')
+        return redirect('tickets:board')
+    # No se usa _log(): crearía un TicketEvent del ticket recién borrado.
+    broadcast_board()
+    messages.success(request, f'{key} eliminado definitivamente.')
     return redirect('tickets:board')
 
 
@@ -1152,6 +1461,21 @@ def my_tickets(request):
 
 @login_required
 @require_capability('tickets.edit_any')
+@require_POST
+def label_quick_add(request):
+    """Alta rápida de un tipo de actividad desde el formulario de ticket (AJAX): crea
+    (o reutiliza, si el nombre ya existe) y devuelve JSON para agregar/tildar el
+    checkbox sin salir del formulario. Mismo permiso que labels_manage."""
+    name = request.POST.get('name', '').strip()[:50]
+    color = request.POST.get('color', Label.Color.NEUTRAL)
+    if not name or color not in dict(Label.Color.choices):
+        return JsonResponse({'ok': False, 'error': 'Falta el nombre o el color no es válido.'}, status=400)
+    label, created = Label.objects.get_or_create(name=name, defaults={'color': color})
+    return JsonResponse({'ok': True, 'id': label.pk, 'name': label.name, 'color': label.color, 'created': created})
+
+
+@login_required
+@require_capability('tickets.edit_any')
 def labels_manage(request):
     if request.method == 'POST':
         action = request.POST.get('action')
@@ -1160,10 +1484,10 @@ def labels_manage(request):
             color = request.POST.get('color', Label.Color.NEUTRAL)
             if name and color in dict(Label.Color.choices):
                 Label.objects.get_or_create(name=name, defaults={'color': color})
-                messages.success(request, f'Actividad «{name}» creada.')
+                messages.success(request, f'Tipo de actividad «{name}» creado.')
         elif action == 'delete':
             Label.objects.filter(pk=request.POST.get('id')).delete()
-            messages.success(request, 'Actividad eliminada.')
+            messages.success(request, 'Tipo de actividad eliminado.')
         return redirect('tickets:labels')
     return render(request, 'tickets/labels.html', {
         'labels': Label.objects.all(), 'colors': Label.Color.choices,

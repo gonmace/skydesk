@@ -1,13 +1,50 @@
-<div class="inline-flex items-center gap-1">
-  {% if a.has_thumbnail %}
+<div class="inline-flex {% if gallery %}flex-col items-center{% else %}items-center gap-1{% endif %}">
+  {% if a.is_image %}
+    <label for="img-modal-{{ a.pk }}" class="block relative cursor-pointer" title="{{ a.filename }}">
+      <img src="{% url 'tickets:attachment_thumb' a.pk %}" alt="{{ a.filename }}"
+           class="w-20 h-20 object-cover rounded-lg border border-base-300 bg-base-200">
+      {% if gallery and a.uploaded_by %}
+        <div class="absolute -bottom-1.5 -right-1.5 ring-2 ring-base-100 rounded-full">
+          {% include 'tickets/partials/_avatar.html' with u=a.uploaded_by size='w-6 h-6' %}
+        </div>
+      {% endif %}
+    </label>
+    {% if gallery %}
+      <span class="block text-[11px] text-base-content/70 mt-1 text-center font-medium">{{ a.created|date:"d/m/y H:i" }}</span>
+    {% endif %}
+    <input type="checkbox" id="img-modal-{{ a.pk }}" class="modal-toggle">
+    <div class="modal" role="dialog">
+      <div class="modal-box max-w-4xl w-auto p-2 bg-transparent shadow-none relative">
+        <img src="{% url 'tickets:attachment_serve' a.pk %}" alt="{{ a.filename }}" loading="lazy" class="max-w-full max-h-[85vh] rounded-lg mx-auto">
+        {% if can_write_chat %}
+        <button type="button" class="btn btn-circle btn-sm btn-ghost bg-base-100/80 absolute top-3 right-3"
+                title="Anotar imagen" aria-label="Anotar imagen"
+                data-annotate-btn data-annotate-url="{% url 'tickets:attachment_annotate' a.pk %}">
+          <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+          </svg>
+        </button>
+        {% endif %}
+      </div>
+      <label class="modal-backdrop" for="img-modal-{{ a.pk }}">Cerrar</label>
+    </div>
+  {% elif a.has_thumbnail %}
     <a href="{% url 'tickets:attachment_serve' a.pk %}" target="_blank" rel="noopener" class="block relative" title="{{ a.filename }}">
       <img src="{% url 'tickets:attachment_thumb' a.pk %}" alt="{{ a.filename }}"
            class="w-20 h-20 object-cover rounded-lg border border-base-300 bg-base-200">
-      {% if a.is_pdf %}<span class="absolute bottom-1 left-1 text-[9px] font-bold px-1 rounded bg-error text-white">PDF</span>{% endif %}
+      <span class="absolute bottom-1 left-1 text-[9px] font-bold px-1 rounded bg-error text-white">PDF</span>
+      {% if gallery and a.uploaded_by %}
+        <span class="absolute -bottom-1.5 -right-1.5 ring-2 ring-base-100 rounded-full">
+          {% include 'tickets/partials/_avatar.html' with u=a.uploaded_by size='w-6 h-6' %}
+        </span>
+      {% endif %}
     </a>
+    {% if gallery %}
+      <span class="block text-[11px] text-base-content/70 mt-1 text-center font-medium">{{ a.created|date:"d/m/y H:i" }}</span>
+    {% endif %}
   {% else %}
     <a href="{% url 'tickets:attachment_serve' a.pk %}" target="_blank" rel="noopener"
-       class="inline-flex items-center gap-2 bg-base-200 rounded-lg px-2.5 py-2 text-xs hover:bg-base-300 max-w-full">
+       class="inline-flex items-center gap-2 bg-base-200 rounded-lg px-2.5 py-2 text-xs hover:bg-base-300 max-w-full relative">
       <span class="inline-flex items-center justify-center w-8 h-8 rounded shrink-0
         {% if a.ext == 'doc' or a.ext == 'docx' %}bg-info/15 text-info{% elif a.ext == 'xls' or a.ext == 'xlsx' or a.ext == 'csv' %}bg-success/15 text-success{% elif a.ext == 'ppt' or a.ext == 'pptx' %}bg-warning/15 text-warning{% else %}bg-base-300 text-base-content/60{% endif %}">
         <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>
@@ -16,12 +53,20 @@
         <span class="block truncate">{{ a.filename }}</span>
         {% if a.ext %}<span class="block text-[10px] uppercase text-base-content/40">{{ a.ext }}</span>{% endif %}
       </span>
+      {% if gallery and a.uploaded_by %}
+        <span class="absolute -bottom-1.5 -right-1.5 ring-2 ring-base-100 rounded-full">
+          {% include 'tickets/partials/_avatar.html' with u=a.uploaded_by size='w-6 h-6' %}
+        </span>
+      {% endif %}
     </a>
+    {% if gallery %}
+      <span class="block text-[11px] text-base-content/70 mt-1 text-center font-medium">{{ a.created|date:"d/m/y H:i" }}</span>
+    {% endif %}
   {% endif %}
-  {% if can_write_chat %}
+  {% if can_write_chat %}{% if not in_chat or is_last_comment %}
     <form method="post" action="{% url 'tickets:attachment_delete' a.pk %}" data-confirm="¿Borrar el adjunto «{{ a.filename }}»?">
       {% csrf_token %}
       <button class="text-error text-xs hover:opacity-70" title="Borrar adjunto">✕</button>
     </form>
-  {% endif %}
+  {% endif %}{% endif %}
 </div>

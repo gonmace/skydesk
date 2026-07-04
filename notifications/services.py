@@ -12,7 +12,7 @@ def notify(recipient, verb, *, actor=None, ticket=None):
     )
     # Chokepoint único de notificaciones: enganchar el push en tiempo real acá cubre
     # todos los llamadores existentes (asignación, comentarios, aprobación, la nueva
-    # Necesidad->Por hacer...) sin tocarlos uno por uno. Import diferido para evitar
+    # Entrada->Por hacer...) sin tocarlos uno por uno. Import diferido para evitar
     # importar el stack de Channels si algún día `notify()` se usa sin Channels instalado.
     from tickets.realtime import broadcast_notification
     broadcast_notification(recipient.pk)

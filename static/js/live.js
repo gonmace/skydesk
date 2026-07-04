@@ -16,6 +16,32 @@
 
   var marker = document.getElementById('live-ticket-marker');
   var watchedTicketId = marker ? marker.getAttribute('data-ticket-id') : null;
+  // El detalle hereda el seguimiento de su cadena de padres (derivar/dividir):
+  // también hay que refrescar cuando cambia cualquiera de esos tickets.
+  var watchedThreadIds = [];
+  if (marker && marker.getAttribute('data-thread-ids')) {
+    watchedThreadIds = marker.getAttribute('data-thread-ids').split(',').filter(Boolean);
+  } else if (watchedTicketId) {
+    watchedThreadIds = [watchedTicketId];
+  }
+
+  // Una acción propia (ej. "Dividir") puede mutar el ticket que se está viendo y disparar
+  // su propio broadcast 'ticket.changed' — y lo hace ANTES de que el navegador reciba la
+  // respuesta del form (el broadcast sale desde la mitad de la vista, el redirect es lo
+  // último). Por eso `beforeunload` solo, que recién se dispara cuando llega esa respuesta,
+  // no alcanza a marcar `navigating` a tiempo: el mensaje WS gana la carrera y el reload de
+  // acá abajo compite con la navegación del form, a veces dejando al usuario de vuelta en
+  // la misma página en lugar del destino real. El `submit` de acá abajo cierra la carrera
+  // en el origen: se dispara sincrónicamente en el momento del envío real (antes de que el
+  // form llegue siquiera a la red), y `!ev.defaultPrevented` evita el falso positivo del
+  // primer `submit` de un form `data-confirm` (ese lo cancela app.js hasta que se confirma
+  // el modal — ver static/js/app.js). `beforeunload` queda como red de contención extra
+  // para navegación que no pasa por un submit (ej. click en un link).
+  var navigating = false;
+  window.addEventListener('beforeunload', function () { navigating = true; });
+  document.addEventListener('submit', function (ev) {
+    if (!ev.defaultPrevented) navigating = true;
+  });
 
   function refreshBoardDebounced() {
     if (!window.refreshBoard) return;
@@ -39,7 +65,7 @@
     if (data.type === 'board.changed') {
       refreshBoardDebounced();
     } else if (data.type === 'ticket.changed') {
-      if (watchedTicketId && String(data.ticket_id) === watchedTicketId) {
+      if (!navigating && watchedThreadIds.indexOf(String(data.ticket_id)) !== -1) {
         window.location.reload();
       }
     } else if (data.type === 'notif.new') {
@@ -53,9 +79,9 @@
 
     socket.onopen = function () {
       reconnectDelay = 1000;
-      if (watchedTicketId) {
-        socket.send(JSON.stringify({ action: 'subscribe_ticket', id: parseInt(watchedTicketId, 10) }));
-      }
+      watchedThreadIds.forEach(function (id) {
+        socket.send(JSON.stringify({ action: 'subscribe_ticket', id: parseInt(id, 10) }));
+      });
     };
     socket.onmessage = handleMessage;
     socket.onclose = function () {

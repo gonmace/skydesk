@@ -10,7 +10,10 @@
   <header class="bg-base-100 border-b border-base-300 sticky top-0 z-30">
     <div class="container mx-auto max-w-[1600px] px-3 sm:px-6">
       <div class="flex items-center h-14 gap-2">
-        <a href="{% url 'tickets:board' %}" class="font-black text-primary tracking-tight text-lg mr-2">SkyDesk</a>
+        <a href="{% url 'tickets:board' %}" class="mr-2 inline-flex items-center shrink-0">
+          <img src="{% static 'img/logo.png' %}" alt="SkyDesk" class="block dark:hidden h-7 w-auto">
+          <img src="{% static 'img/logo-dark.png' %}" alt="SkyDesk" class="hidden dark:block h-7 w-auto">
+        </a>
 
         <nav class="hidden sm:flex items-center gap-1 flex-1 min-w-0 overflow-x-auto">
           {% url 'tickets:board' as u_board %}
@@ -31,7 +34,7 @@
           {% endif %}
           {% if nav_can_labels %}
             {% url 'tickets:labels' as u_lab %}
-            <a href="{{ u_lab }}" class="shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-sm font-semibold {% if request.path == u_lab %}bg-primary/10 text-primary{% else %}text-base-content/50 hover:text-base-content hover:bg-base-200{% endif %}">Actividades</a>
+            <a href="{{ u_lab }}" class="shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-sm font-semibold {% if request.path == u_lab %}bg-primary/10 text-primary{% else %}text-base-content/50 hover:text-base-content hover:bg-base-200{% endif %}">Tipos de Actividad</a>
           {% endif %}
           {% if nav_is_superuser %}
             {% url 'accounts:access_admin' as u_acc %}
@@ -91,12 +94,13 @@
 
           <div id="notif-menu" data-notif-menu-url="{% url 'notifications:menu_fragment' %}">{% include 'notifications/partials/_menu.html' %}</div>
           <div class="dropdown dropdown-end">
-            <button tabindex="0" class="btn btn-ghost btn-sm gap-2" aria-label="Menú">
+            {# Avatar arriba + rol abajo, apilados: h-auto/min-h-0 deja crecer el btn dentro del h-14 del nav #}
+            <button tabindex="0" class="btn btn-ghost btn-sm h-auto min-h-0 py-1 px-2" aria-label="Menú">
               <svg class="w-5 h-5 sm:hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
-              <div class="hidden sm:block">
+              <div class="hidden sm:flex flex-col items-center gap-0.5">
                 {% include 'tickets/partials/_avatar.html' with u=request.user size='w-7 h-7' %}
+                {% if nav_role_label %}<span class="badge badge-xs badge-role" data-role="{{ nav_role }}">{{ nav_role_label }}</span>{% endif %}
               </div>
-              {% if nav_role_label %}<span class="hidden sm:inline-flex badge badge-sm badge-role" data-role="{{ nav_role }}">{{ nav_role_label }}</span>{% endif %}
             </button>
             <ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box z-40 w-56 p-2 border border-base-300 shadow">
               <li class="sm:hidden menu-title text-xs truncate">{{ request.user.get_full_name|default:request.user.email|default:request.user.username }}{% if nav_role_label %} · {{ nav_role_label }}{% endif %}</li>
@@ -105,7 +109,7 @@
               {% if nav_can_dashboard %}<li class="sm:hidden"><a href="{% url 'tickets:dashboard' %}">Dashboard</a></li>{% endif %}
               {% if nav_can_seguimiento %}<li class="sm:hidden"><a href="{% url 'tickets:seguimiento' %}">Seguimiento</a></li>{% endif %}
               {% if nav_can_projects %}<li class="sm:hidden"><a href="{% url 'tickets:projects' %}">Proyectos</a></li>{% endif %}
-              {% if nav_can_labels %}<li class="sm:hidden"><a href="{% url 'tickets:labels' %}">Actividades</a></li>{% endif %}
+              {% if nav_can_labels %}<li class="sm:hidden"><a href="{% url 'tickets:labels' %}">Tipos de Actividad</a></li>{% endif %}
               {% if nav_is_superuser %}
                 <li class="sm:hidden"><a href="{% url 'accounts:access_admin' %}">Cuentas</a></li>
                 <li class="sm:hidden"><a href="{% url 'accounts:roles_board' %}">Roles</a></li>

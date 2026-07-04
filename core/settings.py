@@ -297,7 +297,7 @@ CONTENT_SECURITY_POLICY = {
         'default-src': [SELF],
         'script-src': [SELF],
         'style-src': [SELF],
-        'img-src': [SELF, 'data:'],
+        'img-src': [SELF, 'data:', 'blob:'],
         'font-src': [SELF],
         'connect-src': [SELF] + _WS_SOURCES,
     },

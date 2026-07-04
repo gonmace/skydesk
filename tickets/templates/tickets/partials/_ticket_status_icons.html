@@ -1,19 +1,41 @@
+{% load board_extras %}
 {% if t.num_children %}
+  {% with any_divided=t.children.all|has_divided_child %}
   <a href="{% url 'tickets:detail' t.pk %}"
      data-highlight-children="{% for ch in t.children.all %}{{ ch.pk }}{% if not forloop.last %},{% endif %}{% endfor %}"
-     class="shrink-0 text-base-content hover:opacity-70" title="Derivado en {{ t.num_children }} subticket{{ t.num_children|pluralize }}">
-    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4L8.12 15.88M14.47 14.48L20 20M8.12 8.12L12 12"/></svg>
+     class="shrink-0 text-base-content hover:opacity-70"
+     title="{% if any_divided %}Dividido en {{ t.num_children }} parte{{ t.num_children|pluralize }}{% else %}Derivado en {{ t.num_children }} subticket{{ t.num_children|pluralize }}{% endif %}">
+    {% if any_divided %}
+      <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4L8.12 15.88M14.47 14.48L20 20M8.12 8.12L12 12"/></svg>
+    {% else %}
+      <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+    {% endif %}
   </a>
+  {% endwith %}
 {% endif %}
 {% if t.parent_id %}
-  <a href="{% url 'tickets:detail' t.parent_id %}" class="shrink-0 text-base-content hover:opacity-70" title="{% if t.parent.is_split %}Parte de otro ticket{% else %}Deriva de otro ticket{% endif %}">
-    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
-  </a>
+  {% if t.is_divided_part or t.parent.is_split %}
+    <a href="{% url 'tickets:detail' t.parent_id %}" class="shrink-0 text-base-content hover:opacity-70"
+       data-highlight-siblings="{{ t|divide_family_ids }}"
+       title="Parte de otro ticket — click para resaltar el padre y las otras partes">
+      <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4L8.12 15.88M14.47 14.48L20 20M8.12 8.12L12 12"/></svg>
+    </a>
+  {% else %}
+    <a href="{% url 'tickets:detail' t.parent_id %}" class="shrink-0 text-base-content hover:opacity-70"
+       data-highlight-siblings="{{ t.parent_id }}"
+       title="Deriva de otro ticket — click para resaltar el padre">
+      <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+    </a>
+  {% endif %}
 {% endif %}
 {% if t.has_subproducts %}
-  <span class="text-base-content shrink-0" title="Cada ejecutor tiene su subticket independiente">
-    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
-  </span>
+  <button type="button" class="text-base-content hover:opacity-70 shrink-0 cursor-pointer"
+          data-highlight-ticket="{{ t.pk }}"
+          title="Multiproducto: cada ejecutor tiene su subticket independiente — click para resaltar los del mismo ticket"
+          aria-label="Resaltar los subtickets de {{ t.key }}">
+    {# Círculo (el ticket) apuntando a varios circulitos (los subtickets por ejecutor) #}
+    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="12" r="3"/><circle cx="19" cy="4" r="2"/><circle cx="19" cy="12" r="2"/><circle cx="19" cy="20" r="2"/><path d="M7.6 10.5L17.3 5M8 12h9M7.6 13.5L17.3 19"/></svg>
+  </button>
 {% endif %}
 <span class="prio-bars shrink-0" data-priority="{{ t.priority }}"
       title="Prioridad: {{ t.get_priority_display }}" aria-label="Prioridad: {{ t.get_priority_display }}">

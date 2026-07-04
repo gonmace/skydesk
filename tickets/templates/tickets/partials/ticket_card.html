@@ -17,6 +17,15 @@
           </button>
         </form>
       {% endif %}
+      {% if request.user.is_superuser %}
+        <form method="post" action="{% url 'tickets:delete' t.pk %}" class="inline-flex"
+              data-confirm="¿Eliminar {{ t.key }} definitivamente? Se borran sus mensajes y adjuntos. No se puede deshacer.">
+          {% csrf_token %}
+          <button type="submit" class="shrink-0 text-base-content/40 hover:text-error" title="Eliminar" aria-label="Eliminar {{ t.key }}">
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </button>
+        </form>
+      {% endif %}
     </span>
   </div>
 

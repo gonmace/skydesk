@@ -5,7 +5,7 @@ from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 
-from tickets.models import Ticket
+from tickets.models import Project, Ticket
 
 from . import services
 from .backends import get_backend
@@ -97,7 +97,14 @@ class StoreTests(TestCase):
     def test_key_is_human_readable(self):
         att = services.store(SimpleUploadedFile('foto.png', png_bytes(), content_type='image/png'),
                              owner=self.user, content_object=self.ticket)
-        self.assertTrue(att.storage_key.startswith(f'{self.ticket.key}/'))
+        self.assertTrue(att.storage_key.startswith(f'{self.ticket.key}_t/'))
+
+    def test_key_is_ticket_key_and_title_flat_folder(self):
+        project = Project.objects.create(name='Torre Norte', code='TN')
+        ticket = Ticket.objects.create(title='Instalación de cableado', reporter=self.user, project=project)
+        att = services.store(SimpleUploadedFile('foto.png', png_bytes(), content_type='image/png'),
+                             owner=self.user, content_object=ticket)
+        self.assertTrue(att.storage_key.startswith(f'{ticket.key}_Instalación de cableado/'))
 
     def test_dedup_same_content_same_object(self):
         same = png_bytes()

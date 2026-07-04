@@ -1,9 +1,8 @@
-{% load static %}
-<div data-assignment-id="{{ a.pk }}" data-ticket-id="{{ a.ticket.pk }}" data-status="{{ a.status }}" data-priority="{{ a.ticket.priority }}"{% if a.is_ghost %} data-ghost="1"{% endif %}{% if a.is_readonly %} data-readonly="1"{% endif %}{% if a.is_readonly and a.is_muted %} data-muted="1"{% endif %}{% if a.is_locked %} data-locked="1"{% endif %}{% if a.link_color != None %} data-link-color="{{ a.link_color }}"{% endif %}
+{% load static board_extras %}
+<div data-assignment-id="{{ a.pk }}" data-ticket-id="{{ a.ticket.pk }}" data-status="{{ a.status }}" data-priority="{{ a.ticket.priority }}"{% if a.is_ghost %} data-ghost="1"{% endif %}{% if a.is_readonly %} data-readonly="1"{% endif %}{% if a.is_readonly and a.is_muted %} data-muted="1"{% endif %}{% if a.is_locked %} data-locked="1"{% endif %}{% if a.link_color != None %} data-link-color="{{ a.link_color }}" title="La marca derecha une las cards de {{ a.ticket.key }}"{% endif %}
      class="ticket-card bg-base-100 rounded-2xl p-3 {% if a.is_ghost %}opacity-50 is-ghost{% endif %}{% if a.is_readonly %} is-readonly{% endif %}{% if a.is_readonly and a.is_muted %} opacity-50{% endif %}{% if a.is_locked %} is-locked{% endif %}">
   <div class="flex items-center justify-between gap-2">
     <div class="flex items-baseline gap-1.5 min-w-0">
-      {% include 'tickets/partials/_ticket_link_dot.html' with t=a.ticket link_color=a.link_color %}
       <a href="{% url 'tickets:detail' a.ticket.pk %}" class="font-mono text-xs text-accent font-semibold hover:underline shrink-0">{{ a.ticket.key }}</a>
       {% if a.ticket.project %}<span class="text-[10px] font-semibold text-base-content/50 truncate" title="{{ a.ticket.project.name }}">{{ a.ticket.project.code }}</span>{% endif %}
     </div>
@@ -28,5 +27,5 @@
     {% endif %}
   {% endwith %}
 
-  {% include 'tickets/partials/_card_footer.html' with t=a.ticket assignments=a.ticket.assignments.all %}
+  {% include 'tickets/partials/_card_footer.html' with t=a.ticket assignments=a|as_list %}
 </div>

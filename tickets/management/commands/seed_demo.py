@@ -191,7 +191,7 @@ class Command(BaseCommand):
                 conclusion=conclusion,
             )
 
-        # 1) Necesidad sin proyecto ni etiquetas ni asignaciones — el caso mínimo.
+        # 1) Entrada sin proyecto ni etiquetas ni asignaciones — el caso mínimo.
         # Solo el Coordinador puede crear tickets (tickets.create): el reporter SIEMPRE
         # es un Coordinador, aunque el pedido venga de otra área (ver `solicitante`).
         mk_ticket(
@@ -199,7 +199,7 @@ class Command(BaseCommand):
             reporter=coord, solicitante='Mesa de Ayuda Interna',
         )
 
-        # 2) Necesidad con un experto asignado y ningún ejecutor (sigue en Necesidad).
+        # 2) Entrada con un experto asignado y ningún ejecutor (sigue en Entrada).
         t2 = mk_ticket(
             'Definir política de backups offsite', status=S.BACKLOG, priority=P.MEDIUM,
             reporter=coord, solicitante='Gerencia de Operaciones',
@@ -307,7 +307,7 @@ class Command(BaseCommand):
         TicketEvent.objects.create(ticket=t9, actor=coord, kind='archived', detail='archivó el ticket')
 
         # 10) Derivado de #9 ("Deriva de" — self-FK parent). Sin ejecutor asignado no
-        # podría quedar en "Por hacer" (recompute_status() lo mandaría a Necesidad).
+        # podría quedar en "Por hacer" (recompute_status() lo mandaría a Entrada).
         t10 = mk_ticket(
             'Revisar hallazgos de la auditoría (derivado)', status=S.TODO, priority=P.MEDIUM,
             reporter=coord, solicitante=t9.solicitante, project=proj['AUD'], parent=t9,
@@ -338,7 +338,7 @@ class Command(BaseCommand):
         )
         TicketEvent.objects.create(ticket=t12, actor=coord, kind='assignee', detail='actualizó las asignaciones')
 
-        # 13) Necesidad con etiqueta pero sin ninguna asignación todavía.
+        # 13) Entrada con etiqueta pero sin ninguna asignación todavía.
         mk_ticket(
             'Revisión de checklist de onboarding', status=S.BACKLOG, priority=P.MEDIUM,
             reporter=coord2, solicitante='Gerencia de Operaciones', label_names=['validado'],
@@ -371,7 +371,7 @@ class Command(BaseCommand):
         assign(t15, ejecutor5, status=S.TODO)
         assign(t15, experto2, kind=AK.EXPERTO, status=S.TODO)
 
-        # 16) Necesidad, pedido derivado de un aviso del segundo perfil de Seguimiento.
+        # 16) Entrada, pedido derivado de un aviso del segundo perfil de Seguimiento.
         mk_ticket(
             'Relevar quejas recurrentes de la mesa de ayuda', status=S.BACKLOG, priority=P.MEDIUM,
             reporter=coord, solicitante='Mesa de Ayuda Interna',

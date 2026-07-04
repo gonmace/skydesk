@@ -1,3 +1,4 @@
+{% load chat_extras %}
 <div class="flex gap-2">
   {% if c.author %}{% include 'tickets/partials/_avatar.html' with u=c.author size='w-9 h-9' %}{% else %}
     <div class="avatar-role w-9 h-9 rounded-full flex items-center justify-center shrink-0"><span class="text-[11px] font-bold">—</span></div>
@@ -6,32 +7,44 @@
     <div class="flex items-center gap-2">
       <span class="text-sm font-semibold">{{ c.author.get_full_name|default:c.author.email|default:c.author.username|default:"—" }}</span>
       <span class="text-xs text-base-content/40">{{ c.created|date:"d/m/Y H:i" }}</span>
+      {% if c.inherited %}<span class="badge badge-ghost badge-xs font-mono" title="Mensaje heredado del ticket de origen">{{ c.ticket.key }}</span>{% endif %}
     </div>
-    {% if c.body %}
-      <div class="mt-1 bg-base-200 rounded-2xl rounded-tl-sm px-3 py-2 text-sm whitespace-pre-wrap break-words">{{ c.body }}</div>
+    {# Los heredados son solo-lectura acá: se editan desde su propio ticket. #}
+    {% if not c.inherited and is_last_comment and c.author_id == request.user.id or not c.inherited and is_last_comment and can_moderate_chat %}
+      {# La burbuja va FUERA del <details>: el contenido de un details cerrado no se renderiza. #}
+      <div class="flex flex-col">
+        <details class="group peer order-2" data-chat-edit>
+          <summary class="cursor-pointer text-xs text-base-content/40 hover:text-base-content list-none mt-1 text-right group-open:hidden">editar</summary>
+          <div class="mt-1 flex items-center gap-3">
+            <form method="post" action="{% url 'tickets:comment_edit' c.pk %}" class="flex gap-1 flex-1">
+              {% csrf_token %}
+              <input type="text" name="body" value="{{ c.body }}" class="input input-bordered input-sm flex-1" data-chat-edit-input>
+              <button class="btn btn-success btn-sm">Guardar</button>
+            </form>
+            {% if can_moderate_chat %}
+              <form method="post" action="{% url 'tickets:comment_delete' c.pk %}" data-confirm="¿Borrar este mensaje?">
+                {% csrf_token %}
+                <button class="text-xs text-error hover:underline">borrar</button>
+              </form>
+            {% endif %}
+            <button type="button" class="text-xs text-base-content/40 hover:text-base-content" data-chat-edit-cancel>cancelar</button>
+          </div>
+        </details>
+        {% if c.body %}
+          <div class="order-1 mt-1 bg-base-200 rounded-2xl rounded-tl-sm px-3 py-2 text-sm whitespace-pre-wrap break-words peer-open:hidden">{{ c.body|urlize_chat }}</div>
+        {% endif %}
+      </div>
+    {% else %}
+      {% if c.body %}
+        <div class="mt-1 bg-base-200 rounded-2xl rounded-tl-sm px-3 py-2 text-sm whitespace-pre-wrap break-words">{{ c.body|urlize_chat }}</div>
+      {% endif %}
     {% endif %}
     {% with atts=c.attachments.all %}
       {% if atts %}
         <div class="flex flex-wrap gap-2 mt-2">
-          {% for a in atts %}{% include 'tickets/partials/_attachment.html' %}{% endfor %}
+          {% for a in atts %}{% include 'tickets/partials/_attachment.html' with in_chat=True %}{% endfor %}
         </div>
       {% endif %}
     {% endwith %}
-    {% if c.author_id == request.user.id or can_moderate_chat %}
-      <div class="flex items-center gap-3 mt-1">
-        <details class="text-xs">
-          <summary class="cursor-pointer text-base-content/40 hover:text-base-content list-none">editar</summary>
-          <form method="post" action="{% url 'tickets:comment_edit' c.pk %}" class="mt-1 flex gap-1">
-            {% csrf_token %}
-            <input type="text" name="body" value="{{ c.body }}" class="input input-bordered input-xs flex-1">
-            <button class="btn btn-success btn-xs">Guardar</button>
-          </form>
-        </details>
-        <form method="post" action="{% url 'tickets:comment_delete' c.pk %}" data-confirm="¿Borrar este mensaje?">
-          {% csrf_token %}
-          <button class="text-xs text-error hover:underline">borrar</button>
-        </form>
-      </div>
-    {% endif %}
   </div>
 </div>

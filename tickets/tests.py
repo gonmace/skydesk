@@ -13,7 +13,7 @@ from attachments import services
 from attachments.backends.memory import MemoryBackend
 from notifications.models import Notification
 
-from .models import Assignment, Comment, Label, Project, Ticket
+from .models import Assignment, Comment, Label, Project, Ticket, TicketEvent
 
 User = get_user_model()
 
@@ -69,28 +69,28 @@ class BoardVisibilityTests(TestCase):
 
 @override_settings(**OV)
 class BacklogColumnVisibilityTests(TestCase):
-    """Solo quien puede asignar (Coordinador) ve la columna "Necesidad" (BACKLOG) —
+    """Solo quien puede asignar (Coordinador) ve la columna "Entrada" (BACKLOG) —
     a Ejecutor/Experto/Seguimiento les aporta ruido, no la ven."""
 
-    def test_coordinador_sees_necesidad(self):
+    def test_coordinador_sees_entrada(self):
         self.client.force_login(make_user('coord@e.com', Role.COORDINADOR))
         r = self.client.get(reverse('tickets:board'))
-        self.assertContains(r, 'Necesidad')
+        self.assertContains(r, 'data-status="BACKLOG"')
 
-    def test_experto_does_not_see_necesidad(self):
+    def test_experto_does_not_see_entrada(self):
         self.client.force_login(make_user('exp@e.com', Role.EXPERTO))
         r = self.client.get(reverse('tickets:board'))
-        self.assertNotContains(r, 'Necesidad')
+        self.assertNotContains(r, 'data-status="BACKLOG"')
 
-    def test_seguimiento_does_not_see_necesidad(self):
+    def test_seguimiento_does_not_see_entrada(self):
         self.client.force_login(make_user('seg@e.com', Role.SEGUIMIENTO))
         r = self.client.get(reverse('tickets:board'))
-        self.assertNotContains(r, 'Necesidad')
+        self.assertNotContains(r, 'data-status="BACKLOG"')
 
-    def test_ejecutor_does_not_see_necesidad(self):
+    def test_ejecutor_does_not_see_entrada(self):
         self.client.force_login(make_user('ej@e.com', Role.EJECUTOR))
         r = self.client.get(reverse('tickets:board'))
-        self.assertNotContains(r, 'Necesidad')
+        self.assertNotContains(r, 'data-status="BACKLOG"')
 
 
 @override_settings(**OV)
@@ -429,7 +429,7 @@ class AssignmentNotifyTests(TestCase):
         self.coord = make_user('coord@e.com', Role.COORDINADOR)
         self.dev = make_user('dev@e.com', Role.EJECUTOR)
 
-    def test_create_with_executor_notifies_but_stays_in_backlog(self):
+    def test_create_with_executor_notifies_and_goes_to_todo(self):
         self.client.force_login(self.coord)
         r = self.client.post(reverse('tickets:create'), {
             'title': 'Nuevo', 'solicitante': 'Gerencia', 'priority': 'MEDIUM',
@@ -440,8 +440,17 @@ class AssignmentNotifyTests(TestCase):
         self.assertEqual(len(mail.outbox), 1)
         ticket = Ticket.objects.get(title='Nuevo')
         self.assertEqual(ticket.assignments.filter(user=self.dev, kind='EJECUTOR').count(), 1)
-        # Un ticket recién creado siempre queda en Necesidad, aunque ya se haya asignado
-        # ejecutor en el mismo formulario — pasa a Por hacer recién en una edición posterior.
+        # Si ya se designó ejecutor en el mismo formulario, el ticket pasa directo a Por
+        # hacer — solo queda en Entrada cuando se crea sin ejecutores.
+        self.assertEqual(ticket.status, Ticket.Status.TODO)
+
+    def test_create_without_executor_stays_in_backlog(self):
+        self.client.force_login(self.coord)
+        r = self.client.post(reverse('tickets:create'), {
+            'title': 'Sin ejecutor', 'solicitante': 'Gerencia', 'priority': 'MEDIUM',
+        })
+        self.assertEqual(r.status_code, 302)
+        ticket = Ticket.objects.get(title='Sin ejecutor')
         self.assertEqual(ticket.status, Ticket.Status.BACKLOG)
 
     def test_reassign_notifies_new_executor(self):
@@ -481,6 +490,42 @@ class CommentModerationTests(TestCase):
         r = self.client.post(reverse('tickets:comment_delete', args=[self.c.pk]))
         self.assertEqual(r.status_code, 302)
         self.assertFalse(Comment.objects.filter(pk=self.c.pk).exists())
+
+    def test_old_comment_cannot_be_edited(self):
+        Comment.objects.create(ticket=self.t, author=self.other, body='nuevo')
+        self.client.force_login(self.owner)
+        r = self.client.post(reverse('tickets:comment_edit', args=[self.c.pk]), {'body': 'editado'})
+        self.assertEqual(r.status_code, 403)
+        self.c.refresh_from_db()
+        self.assertEqual(self.c.body, 'hola')
+
+    def test_old_comment_cannot_be_deleted_even_by_moderator(self):
+        Comment.objects.create(ticket=self.t, author=self.other, body='nuevo')
+        self.client.force_login(self.sup)
+        r = self.client.post(reverse('tickets:comment_delete', args=[self.c.pk]))
+        self.assertEqual(r.status_code, 403)
+        self.assertTrue(Comment.objects.filter(pk=self.c.pk).exists())
+
+    def test_old_comment_attachment_cannot_be_deleted(self):
+        MemoryBackend.clear()
+        att = services.store(
+            SimpleUploadedFile('f.png', _png_bytes(), content_type='image/png'),
+            owner=self.owner, content_object=self.c,
+        )
+        Comment.objects.create(ticket=self.t, author=self.other, body='nuevo')
+        self.client.force_login(self.owner)
+        r = self.client.post(reverse('tickets:attachment_delete', args=[att.pk]))
+        self.assertEqual(r.status_code, 403)
+
+    def test_last_comment_attachment_can_be_deleted(self):
+        MemoryBackend.clear()
+        att = services.store(
+            SimpleUploadedFile('f.png', _png_bytes(), content_type='image/png'),
+            owner=self.owner, content_object=self.c,
+        )
+        self.client.force_login(self.owner)
+        r = self.client.post(reverse('tickets:attachment_delete', args=[att.pk]))
+        self.assertEqual(r.status_code, 302)
 
 
 @override_settings(**OV)
@@ -619,20 +664,20 @@ class MergedSubticketCardTests(TestCase):
         self.assertIn('data-merged="1"', block)
         self.assertIn(f'data-assignment-id="{self.a1.pk}"', block)  # arrastra la propia
 
-    def test_fully_merged_ticket_has_no_ping_dot(self):
+    def test_fully_merged_ticket_has_no_link_marker(self):
         # Únicos 2 ejecutores, ambos alineados en el mismo estado: no queda ninguna
-        # otra card de este ticket en el tablero, así que el punto de vínculo no aporta.
+        # otra card de este ticket en el tablero, así que la marca de vínculo no aporta.
         self.client.force_login(self.dev1)
         r = self.client.get(reverse('tickets:board'))
         content = r.content.decode()
         i = content.find(f'data-ticket-id="{self.ticket.pk}"')
         block = content[i:i + 400]
-        self.assertNotIn('ticket-link-dot', block)
         self.assertNotIn('data-link-color', block)
 
-    def test_ping_dot_returns_when_a_third_diverges(self):
+    def test_link_marker_returns_when_a_third_diverges(self):
         # dev3 se suma y queda en otra columna: ahora SÍ hay 2 cards del mismo ticket
-        # (la fusionada de dev1+dev2, y la de dev3 solo) — el punto vuelve a tener sentido.
+        # (la fusionada de dev1+dev2, y la de dev3 solo) — la marca de color en el borde
+        # derecho (data-link-color en el root, pintada por CSS) vuelve a tener sentido.
         a3 = Assignment.objects.create(ticket=self.ticket, user=self.dev3, kind=Assignment.Kind.EJECUTOR,
                                        status='IN_PROGRESS')
         self.client.force_login(self.dev1)
@@ -640,8 +685,8 @@ class MergedSubticketCardTests(TestCase):
         content = r.content.decode()
         merged_i = content.find(f'data-ticket-id="{self.ticket.pk}" data-status="TODO"')
         solo_i = content.find(f'data-assignment-id="{a3.pk}"')
-        self.assertIn('ticket-link-dot', content[merged_i:merged_i + 700])
-        self.assertIn('ticket-link-dot', content[solo_i:solo_i + 700])
+        self.assertIn('data-link-color', content[merged_i:merged_i + 700])
+        self.assertIn('data-link-color', content[solo_i:solo_i + 700])
 
     def test_diverging_status_splits_back_into_two_cards(self):
         self.client.force_login(self.dev1)
@@ -795,7 +840,7 @@ class SuspendLockTests(TestCase):
         self.assertEqual(r.status_code, 200)
 
     def test_suspend_ticket_without_assignments_goes_to_waiting_not_backlog(self):
-        # Necesidad (sin ejecutores): recompute_status() no debía pisar el suspendido
+        # Entrada (sin ejecutores): recompute_status() no debía pisar el suspendido
         # con BACKLOG solo porque no hay ejecutores asignados.
         unassigned = Ticket.objects.create(title='Sin ejecutores', reporter=self.coord)
         self.client.force_login(self.coord)
@@ -838,6 +883,28 @@ class ArchiveUnarchiveTests(TestCase):
         self.assertEqual(r.status_code, 302)
         self.ticket.refresh_from_db()
         self.assertFalse(self.ticket.is_archived)
+
+
+@override_settings(**OV)
+class TicketDeleteTests(TestCase):
+    """Borrado definitivo desde la X de la card: solo superuser."""
+
+    def setUp(self):
+        self.coord = make_user('coord-del@e.com', Role.COORDINADOR)
+        self.superuser = User.objects.create_superuser('root-del@e.com', 'root-del@e.com', 'x')
+        self.ticket = Ticket.objects.create(title='T', reporter=self.coord)
+
+    def test_superuser_can_delete(self):
+        self.client.force_login(self.superuser)
+        r = self.client.post(reverse('tickets:delete', args=[self.ticket.pk]))
+        self.assertEqual(r.status_code, 302)
+        self.assertFalse(Ticket.objects.filter(pk=self.ticket.pk).exists())
+
+    def test_non_superuser_cannot_delete(self):
+        self.client.force_login(self.coord)
+        r = self.client.post(reverse('tickets:delete', args=[self.ticket.pk]))
+        self.assertEqual(r.status_code, 403)
+        self.assertTrue(Ticket.objects.filter(pk=self.ticket.pk).exists())
 
 
 class TicketCodeGenerationTests(TestCase):
@@ -993,9 +1060,8 @@ class DeriveInheritanceTests(TestCase):
 
 @override_settings(**OV)
 class DivideContainerTests(TestCase):
-    """Al dividir, el original pasa a ser un contenedor oculto (split_at): deja de
-    aparecer como card propia en el tablero y en mis-tickets, y la parte creada
-    hereda etiquetas/asignados igual que derivar."""
+    """Al dividir, el original sigue activo tal cual (no se oculta ni se borra) y la parte
+    nueva hereda etiquetas/asignados/contenido/estado del padre."""
 
     def setUp(self):
         self.coord = make_user('coord@e.com', Role.COORDINADOR)
@@ -1004,23 +1070,32 @@ class DivideContainerTests(TestCase):
         Assignment.objects.create(ticket=self.parent, user=self.coord, kind=Assignment.Kind.EJECUTOR)
         Assignment.objects.create(ticket=self.parent, user=self.ejecutor, kind=Assignment.Kind.EJECUTOR)
 
-    def test_divide_sets_split_at(self):
+    def test_divide_does_not_hide_parent(self):
         self.client.force_login(self.coord)
         self.client.post(reverse('tickets:divide', args=[self.parent.pk]))
         self.parent.refresh_from_db()
-        self.assertIsNotNone(self.parent.split_at)
-
-    def test_divided_parent_hidden_from_board(self):
-        self.client.force_login(self.coord)
-        self.client.post(reverse('tickets:divide', args=[self.parent.pk]))
+        self.assertIsNone(self.parent.split_at)
         r = self.client.get(reverse('tickets:board'))
-        self.assertNotContains(r, f'data-ticket-id="{self.parent.pk}"')
+        self.assertContains(r, f'data-ticket-id="{self.parent.pk}"')
+        r = self.client.get(reverse('tickets:my_tickets'))
+        # Mis tickets es una lista de <a> (sin data-ticket-id): se verifica por el href.
+        self.assertContains(r, f'href="/{self.parent.pk}/"')
 
-    def test_divided_parent_hidden_from_my_tickets(self):
+    def test_parts_are_marked_as_divided(self):
         self.client.force_login(self.coord)
         self.client.post(reverse('tickets:divide', args=[self.parent.pk]))
-        r = self.client.get(reverse('tickets:my_tickets'))
-        self.assertNotContains(r, f'data-ticket-id="{self.parent.pk}"')
+        part = self.parent.children.get()
+        self.assertTrue(part.is_divided_part)
+        # Un hijo de Derivar no es una "parte" (usa la flecha, no la tijera).
+        derived = self.parent.create_child(title='Derivado', reporter=self.coord, status=self.parent.status)
+        self.assertFalse(derived.is_divided_part)
+
+    def test_divide_creates_one_part(self):
+        self.client.force_login(self.coord)
+        r = self.client.post(reverse('tickets:divide', args=[self.parent.pk]))
+        self.assertRedirects(r, reverse('tickets:board'))
+        part = self.parent.children.get()
+        self.assertEqual(part.code, f'{self.parent.code}-1')
 
     def test_part_inherits_labels_and_assignments(self):
         label = Label.objects.create(name='infra', color=Label.Color.INFO)
@@ -1034,17 +1109,167 @@ class DivideContainerTests(TestCase):
             {(self.coord.pk, Assignment.Kind.EJECUTOR), (self.ejecutor.pk, Assignment.Kind.EJECUTOR)},
         )
 
-    def test_dividing_again_adds_second_part_without_resetting_split_at(self):
+    def test_dividing_again_adds_one_more_part(self):
         self.client.force_login(self.coord)
         self.client.post(reverse('tickets:divide', args=[self.parent.pk]))
-        self.parent.refresh_from_db()
-        first_split_at = self.parent.split_at
         self.client.post(reverse('tickets:divide', args=[self.parent.pk]))
         self.parent.refresh_from_db()
-        self.assertEqual(self.parent.split_at, first_split_at)
         self.assertEqual(self.parent.children.count(), 2)
         codes = sorted(self.parent.children.values_list('code', flat=True))
         self.assertEqual(codes, [f'{self.parent.code}-1', f'{self.parent.code}-2'])
+
+    def test_part_clones_content_identical_to_parent(self):
+        self.parent.description = 'Descripción original'
+        self.parent.priority = Ticket.Priority.HIGH
+        self.parent.due_date = timezone.localdate()
+        self.parent.save()
+        self.client.force_login(self.coord)
+        self.client.post(reverse('tickets:divide', args=[self.parent.pk]))
+        part = self.parent.children.get()
+        self.assertEqual(part.title, self.parent.title)
+        self.assertEqual(part.description, self.parent.description)
+        self.assertEqual(part.priority, self.parent.priority)
+        self.assertEqual(part.due_date, self.parent.due_date)
+        self.assertEqual(part.reporter_id, self.parent.reporter_id)
+
+    def test_part_of_in_progress_parent_stays_in_progress(self):
+        self.parent.assignments.filter(user=self.ejecutor).update(
+            status=Ticket.Status.IN_PROGRESS, started_at=timezone.now(),
+        )
+        self.parent.recompute_status()
+        self.assertEqual(self.parent.status, Ticket.Status.IN_PROGRESS)
+        self.client.force_login(self.coord)
+        self.client.post(reverse('tickets:divide', args=[self.parent.pk]))
+        part = self.parent.children.get()
+        self.assertEqual(part.status, Ticket.Status.IN_PROGRESS)
+        # Y en el tablero la card cae en la misma columna que ocupaba el padre.
+        r = self.client.get(reverse('tickets:board'))
+        self.assertContains(r, f'data-ticket-id="{part.pk}" data-status="IN_PROGRESS"')
+
+    def test_part_of_done_and_approved_parent_is_also_done(self):
+        now = timezone.now()
+        self.parent.assignments.update(status=Ticket.Status.DONE, approved_at=now, closed_date=now)
+        self.parent.recompute_status()
+        self.assertEqual(self.parent.status, Ticket.Status.DONE)
+        self.client.force_login(self.coord)
+        self.client.post(reverse('tickets:divide', args=[self.parent.pk]))
+        part = self.parent.children.get()
+        self.assertEqual(part.status, Ticket.Status.DONE)
+
+
+@override_settings(**OV)
+class InheritedThreadTests(TestCase):
+    """El detalle de un derivado/parte muestra el seguimiento y el historial de su
+    cadena de padres, heredados en vivo (sin copiar filas), mezclados por fecha y
+    en solo-lectura."""
+
+    def setUp(self):
+        self.coord = make_user('coord-h@e.com', Role.COORDINADOR)
+        self.parent = Ticket.objects.create(title='Padre', reporter=self.coord)
+        self.parent_comment = Comment.objects.create(
+            ticket=self.parent, author=self.coord, body='Contexto del pedido original',
+        )
+        TicketEvent.objects.create(
+            ticket=self.parent, actor=self.coord, kind='status', detail='cambió el estado a Por hacer',
+        )
+        self.client.force_login(self.coord)
+        self.client.post(reverse('tickets:derive', args=[self.parent.pk]))
+        self.child = self.parent.children.get()
+
+    def test_child_detail_shows_parent_comment_with_origin_chip(self):
+        r = self.client.get(reverse('tickets:detail', args=[self.child.pk]))
+        self.assertContains(r, 'Contexto del pedido original')
+        self.assertContains(r, 'Mensaje heredado del ticket de origen')
+        self.assertContains(r, f'incluye {self.parent.key}')
+
+    def test_child_detail_shows_parent_event(self):
+        r = self.client.get(reverse('tickets:detail', args=[self.child.pk]))
+        self.assertContains(r, 'cambió el estado a Por hacer')
+        self.assertContains(r, 'Evento heredado del ticket de origen')
+
+    def test_parent_comment_added_after_derive_appears_in_child(self):
+        Comment.objects.create(ticket=self.parent, author=self.coord, body='Mensaje posterior a derivar')
+        r = self.client.get(reverse('tickets:detail', args=[self.child.pk]))
+        self.assertContains(r, 'Mensaje posterior a derivar')
+
+    def test_inherited_comment_is_read_only_in_child(self):
+        # El comment del padre es el último del hilo mezclado y su autor es quien mira,
+        # pero al ser heredado no debe ofrecer edición desde el hijo…
+        r = self.client.get(reverse('tickets:detail', args=[self.child.pk]))
+        self.assertNotContains(r, '>editar<')
+        # …mientras que en su propio ticket sí.
+        r = self.client.get(reverse('tickets:detail', args=[self.parent.pk]))
+        self.assertContains(r, '>editar<')
+
+    def test_parent_detail_does_not_show_child_comments(self):
+        Comment.objects.create(ticket=self.child, author=self.coord, body='Solo del derivado')
+        r = self.client.get(reverse('tickets:detail', args=[self.parent.pk]))
+        self.assertNotContains(r, 'Solo del derivado')
+
+    def test_marker_carries_thread_ids_for_live_refresh(self):
+        r = self.client.get(reverse('tickets:detail', args=[self.child.pk]))
+        self.assertContains(r, f'data-thread-ids="{self.child.pk},{self.parent.pk}"')
+
+
+@override_settings(**OV)
+class LabelQuickAddTests(TestCase):
+    """Alta rápida de tipos de actividad desde el formulario de ticket (AJAX):
+    solo quien tiene tickets.edit_any (Coordinador); nombre repetido reutiliza."""
+
+    def setUp(self):
+        self.coord = make_user('coord-l@e.com', Role.COORDINADOR)
+        self.ej = make_user('ej-l@e.com', Role.EJECUTOR)
+
+    def test_coordinator_can_quick_add(self):
+        self.client.force_login(self.coord)
+        r = self.client.post(reverse('tickets:label_add'), {'name': 'Relevamiento', 'color': 'info'})
+        data = r.json()
+        self.assertTrue(data['ok'])
+        self.assertTrue(data['created'])
+        label = Label.objects.get(pk=data['id'])
+        self.assertEqual((label.name, label.color), ('Relevamiento', 'info'))
+
+    def test_duplicate_name_reuses_existing(self):
+        existing = Label.objects.create(name='Relevamiento', color=Label.Color.SUCCESS)
+        self.client.force_login(self.coord)
+        r = self.client.post(reverse('tickets:label_add'), {'name': 'Relevamiento', 'color': 'info'})
+        data = r.json()
+        self.assertTrue(data['ok'])
+        self.assertFalse(data['created'])
+        self.assertEqual(data['id'], existing.pk)
+        self.assertEqual(data['color'], 'success')  # conserva el color original
+
+    def test_invalid_payload_is_rejected(self):
+        self.client.force_login(self.coord)
+        r = self.client.post(reverse('tickets:label_add'), {'name': '  ', 'color': 'info'})
+        self.assertEqual(r.status_code, 400)
+        r = self.client.post(reverse('tickets:label_add'), {'name': 'X', 'color': 'fucsia'})
+        self.assertEqual(r.status_code, 400)
+
+    def test_ejecutor_cannot_quick_add(self):
+        self.client.force_login(self.ej)
+        r = self.client.post(reverse('tickets:label_add'), {'name': 'Hack', 'color': 'info'})
+        self.assertEqual(r.status_code, 403)
+        self.assertFalse(Label.objects.filter(name='Hack').exists())
+
+    def test_create_form_shows_quick_add_ui_and_chip_options(self):
+        Label.objects.create(name='Cableado', color=Label.Color.WARNING)
+        self.client.force_login(self.coord)
+        r = self.client.get(reverse('tickets:create'))
+        self.assertContains(r, 'data-label-add')                    # UI de alta rápida
+        self.assertContains(r, 'checkbox checkbox-xs')              # checkbox DaisyUI
+        self.assertContains(r, 'data-color="warning">Cableado')     # chip con color
+
+    def test_edit_form_preselects_ticket_labels(self):
+        label = Label.objects.create(name='Cableado', color=Label.Color.WARNING)
+        t = Ticket.objects.create(title='T', reporter=self.coord)
+        t.labels.set([label])
+        self.client.force_login(self.coord)
+        r = self.client.get(reverse('tickets:edit', args=[t.pk]))
+        html = r.content.decode()
+        i = html.find(f'value="{label.pk}"')
+        self.assertNotEqual(i, -1)
+        self.assertIn('checked', html[i:i + 200])
 
 
 @override_settings(**OV)
@@ -1095,7 +1320,7 @@ class TicketModeDragTests(TestCase):
 
 @override_settings(**OV)
 class BacklogToTodoNotifyTests(TestCase):
-    """Al pasar Necesidad -> Por hacer, avisa a los involucrados preexistentes, menos a
+    """Al pasar Entrada -> Por hacer, avisa a los involucrados preexistentes, menos a
     quien hizo el cambio (siempre un coordinador, único rol con tickets.assign)."""
 
     def setUp(self):

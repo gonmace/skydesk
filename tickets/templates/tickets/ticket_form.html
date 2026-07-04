@@ -1,5 +1,5 @@
 {% extends 'tickets/base_app.html' %}
-{% load static %}
+{% load static board_extras %}
 {% block title %}{% if creating %}Nuevo ticket{% else %}Editar {{ ticket.key }}{% endif %}{% endblock %}
 
 {% block app_content %}
@@ -44,14 +44,30 @@
           {{ form.due_date }}
         </div>
       </div>
-      {% if form.labels.field.queryset %}
+      {% if form.labels.field.queryset or can_manage_labels %}
         <div>
-          <label class="label"><span class="label-text font-medium">Actividades</span></label>
-          <div class="flex flex-wrap gap-3">
-            {% for opt in form.labels %}
-              <label class="inline-flex items-center gap-2 cursor-pointer">{{ opt.tag }}<span class="text-sm">{{ opt.choice_label }}</span></label>
+          <label class="label"><span class="label-text font-medium">Tipos de Actividad</span></label>
+          {# Render manual (no el widget) para mostrar cada tipo como chip con su color #}
+          <div class="flex flex-wrap gap-2" data-label-options>
+            {% for l in form.labels.field.queryset %}
+              <label class="inline-flex items-center gap-1.5 cursor-pointer rounded-lg border border-base-300 px-2.5 py-1.5 hover:bg-base-200 transition-colors">
+                <input type="checkbox" name="labels" value="{{ l.pk }}" class="checkbox checkbox-xs checkbox-primary"
+                       {% if l.pk|selected_in:form.labels.value %}checked{% endif %}>
+                <span class="label-chip" data-color="{{ l.color }}">{{ l.name }}</span>
+              </label>
             {% endfor %}
           </div>
+          {% for e in form.labels.errors %}<p class="text-error text-xs mt-1">{{ e }}</p>{% endfor %}
+          {% if can_manage_labels %}
+            <div class="mt-2.5 flex flex-wrap items-center gap-2" data-label-add data-url="{% url 'tickets:label_add' %}">
+              <input type="text" maxlength="50" class="input input-bordered input-sm w-48"
+                     placeholder="Nuevo tipo de actividad…" data-label-add-name>
+              <select class="select select-bordered select-sm w-32" title="Color" data-label-add-color>
+                {% for value, name in label_colors %}<option value="{{ value }}">{{ name }}</option>{% endfor %}
+              </select>
+              <button type="button" class="btn btn-accent btn-sm" data-label-add-btn>Agregar</button>
+            </div>
+          {% endif %}
         </div>
       {% endif %}
     </div>
@@ -124,4 +140,5 @@
 
 {% block app_scripts %}
   <script src="{% static 'js/multiselect-filter.js' %}" defer></script>
+  <script src="{% static 'js/label-add.js' %}" defer></script>
 {% endblock %}

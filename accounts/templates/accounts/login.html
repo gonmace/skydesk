@@ -40,7 +40,7 @@
 {% if nextcloud_login_enabled %}
   <div class="divider text-xs text-base-content/40">o</div>
   <a href="{% url 'accounts:nextcloud_login' %}{% if request.GET.next %}?next={{ request.GET.next|urlencode }}{% endif %}"
-     class="btn btn-outline w-full">Iniciar sesión con Nextcloud</a>
+     class="btn btn-primary btn-outline w-full">Iniciar sesión con Nextcloud</a>
 {% endif %}
 {% endblock %}
 

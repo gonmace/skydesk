@@ -5,6 +5,39 @@
 {% block app_content %}
 {% include 'tickets/partials/_filters.html' %}
 
+{% if show_status_legend %}
+<input type="checkbox" id="status-legend-toggle" class="modal-toggle" />
+<div class="modal" role="dialog">
+  <div class="modal-box max-w-2xl">
+    <h3 class="font-bold text-base mb-1">Qué ve cada rol en el tablero</h3>
+    <div class="overflow-x-auto">
+      <div class="min-w-[520px]">
+        <div class="flex items-center gap-3 mb-2">
+          <div class="grid grid-cols-5 gap-1 flex-1 text-[11px] font-semibold text-center">
+            {% for val, label in status_legend.statuses %}<div class="truncate {% if forloop.counter0 == 0 %}text-base-content/50{% elif forloop.counter0 == 1 %}text-info{% elif forloop.counter0 == 2 %}text-warning{% elif forloop.counter0 == 3 %}text-success{% elif forloop.counter0 == 4 %}text-error{% endif %}">{{ label }}</div>{% endfor %}
+          </div>
+          <div class="w-40 shrink-0"></div>
+        </div>
+        {% for row in status_legend.rows %}
+          <div class="flex items-center gap-3 mb-3">
+            <div class="grid grid-cols-5 gap-1 flex-1">
+              {% for val, label in status_legend.statuses %}
+                <div class="h-2 {% if forloop.counter0 >= row.start and forloop.counter0 <= row.end %}border-t-2 {% if forloop.counter0 == 0 %}border-base-content/60{% elif forloop.counter0 == 1 %}border-info{% elif forloop.counter0 == 2 %}border-warning{% elif forloop.counter0 == 3 %}border-success{% elif forloop.counter0 == 4 %}border-error{% endif %}{% if forloop.counter0 == row.start %} border-l-2 rounded-tl{% endif %}{% if forloop.counter0 == row.end %} border-r-2 rounded-tr{% endif %}{% endif %}"></div>
+              {% endfor %}
+            </div>
+            <span class="w-40 shrink-0 text-xs font-medium text-base-content/70">{{ row.label }}</span>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="modal-action">
+      <label for="status-legend-toggle" class="btn btn-ghost btn-sm">Cerrar</label>
+    </div>
+  </div>
+  <label class="modal-backdrop" for="status-legend-toggle">Cerrar</label>
+</div>
+{% endif %}
+
 <div class="flex gap-4 overflow-x-auto lg:overflow-x-visible pb-4 snap-x snap-mandatory sm:snap-none scroll-px-3 -mx-3 px-3 sm:mx-0 sm:px-0"
      data-kanban
      data-mode="{{ board_mode }}"
