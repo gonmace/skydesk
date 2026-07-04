@@ -82,4 +82,6 @@ docker compose ${PROFILES} up -d --build --remove-orphans
 
 echo ""
 echo "✓ Despliegue completado → https://${DOMAIN}"
-[ -n "${N8N_DOMAIN}" ] && echo "✓ n8n disponible → https://${N8N_DOMAIN}"
+if [ -n "${N8N_DOMAIN}" ]; then
+    echo "✓ n8n disponible → https://${N8N_DOMAIN}"
+fi

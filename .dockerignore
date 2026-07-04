@@ -1,5 +1,6 @@
 # Datos y runtime
 db/
+volumes/
 *.sqlite3
 .env
 .env.*
