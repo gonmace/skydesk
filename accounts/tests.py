@@ -243,6 +243,20 @@ class NextcloudLoginTests(TestCase):
         r = self.client.get(reverse('accounts:nextcloud_callback'), {'code': 'abc', 'state': 'x'})
         self.assertEqual(r.status_code, 404)
 
+    @override_settings(NEXTCLOUD_RETURN_URL='https://sky.empresa.com/apps/external/1')
+    @patch('accounts.views.requests.get')
+    @patch('accounts.views.requests.post')
+    def test_callback_embedded_redirects_to_nextcloud_return_url(self, mock_post, mock_get):
+        # Simula el login iniciado desde dentro del iframe (target="_top", ?embedded=1):
+        # el callback debe devolver el tab a Nextcloud en vez de al board de SkyDesk.
+        self.client.get(reverse('accounts:nextcloud_login'), {'embedded': '1'})
+        state = self.client.session['nc_oauth_state']
+        mock_post.return_value, mock_get.return_value = self._token_and_userinfo_mocks()
+
+        r = self.client.get(reverse('accounts:nextcloud_callback'), {'code': 'abc', 'state': state})
+        self.assertRedirects(r, 'https://sky.empresa.com/apps/external/1', fetch_redirect_response=False)
+        self.assertIn('_auth_user_id', self.client.session)
+
 
 class DevImpersonationTests(TestCase):
     """Impersonar usuario dev: no existe fuera de DEBUG ni para no-superuser; una vez
