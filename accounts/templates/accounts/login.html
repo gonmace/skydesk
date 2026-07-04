@@ -1,8 +1,10 @@
 {% extends 'accounts/_auth_base.html' %}
+{% load static %}
 {% block title %}Iniciar sesión{% endblock %}
 {% block auth_subtitle %}Iniciá sesión con tu correo{% endblock %}
 
 {% block auth_content %}
+<div id="nc-local-login">
 <form method="post" class="space-y-4" novalidate>
   {% csrf_token %}
 
@@ -36,14 +38,19 @@
 
   <button type="submit" class="btn btn-success w-full">Ingresar</button>
 </form>
+</div>
 
 {% if nextcloud_login_enabled %}
-  <div class="divider text-xs text-base-content/40">o</div>
-  <a href="{% url 'accounts:nextcloud_login' %}{% if request.GET.next %}?next={{ request.GET.next|urlencode }}{% endif %}"
+  <div id="nc-divider" class="divider text-xs text-base-content/40">o</div>
+  <a id="nc-login-link" href="{% url 'accounts:nextcloud_login' %}{% if request.GET.next %}?next={{ request.GET.next|urlencode }}{% endif %}"
      class="btn btn-primary btn-outline w-full">Iniciar sesión con Nextcloud</a>
 {% endif %}
 {% endblock %}
 
 {% block auth_footer %}
 ¿Primera vez? <a href="{% url 'accounts:request_access' %}" class="text-primary hover:underline">Solicitá acceso</a>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{% static 'js/nextcloud-embed-login.js' %}" defer></script>
 {% endblock %}

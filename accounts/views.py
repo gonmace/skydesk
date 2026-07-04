@@ -484,6 +484,10 @@ def nextcloud_login(request):
     next_url = request.GET.get('next', '')
     if url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
         request.session['nc_oauth_next'] = next_url
+    # `embedded=1` llega del JS de login.html cuando detecta window.self !== window.top:
+    # este request ya viene de un target="_top" (fuera del iframe), así que el callback
+    # sabe que debe devolver al usuario a Nextcloud en vez de al board de SkyDesk.
+    request.session['nc_oauth_embedded'] = request.GET.get('embedded') == '1'
 
     redirect_uri = request.build_absolute_uri(reverse('accounts:nextcloud_callback'))
     params = urlencode({
@@ -569,6 +573,13 @@ def nextcloud_callback(request):
 
     login(request, user, backend='accounts.backends.EmailBackend')
     messages.success(request, f'Bienvenido/a, {user.get_full_name() or user.email}.')
+
+    if request.session.pop('nc_oauth_embedded', False) and settings.NEXTCLOUD_RETURN_URL:
+        # Login iniciado desde dentro del iframe de Nextcloud: este request ya es top-level
+        # (llegó vía target="_top"), así que un redirect normal a una URL absoluta externa
+        # devuelve el tab a Nextcloud. Al recargar esa página, el iframe de SkyDesk vuelve
+        # a pedirse y ya lleva la cookie de sesión (SameSite=None) recién seteada.
+        return redirect(settings.NEXTCLOUD_RETURN_URL)
     return redirect(next_url)
 
 

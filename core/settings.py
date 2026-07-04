@@ -50,7 +50,6 @@ MIDDLEWARE = [
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
-    'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
 INSTALLED_APPS += ['tailwind', 'theme']
@@ -225,7 +224,17 @@ if not DEBUG:
     SECURE_CONTENT_TYPE_NOSNIFF = True
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
-X_FRAME_OPTIONS = 'DENY'
+# SkyDesk se embebe como iframe dentro de Nextcloud (NEXTCLOUD_EMBED_ORIGIN) además de
+# servirse en su propio dominio — no hay X_FRAME_OPTIONS ni XFrameOptionsMiddleware, el
+# framing lo gobierna exclusivamente la CSP (frame-ancestors, más abajo), que es más
+# granular. SameSite=None es requisito para que sessionid/csrftoken viajen dentro del
+# iframe cross-site; solo en producción porque exige Secure (HTTPS).
+SESSION_COOKIE_SAMESITE = 'None' if not DEBUG else 'Lax'
+CSRF_COOKIE_SAMESITE = 'None' if not DEBUG else 'Lax'
+
+# URL de la página de Nextcloud (External Sites) a la que se vuelve tras el login SSO
+# iniciado desde dentro del iframe — ver accounts.views.nextcloud_login/_callback.
+NEXTCLOUD_RETURN_URL = config('NEXTCLOUD_RETURN_URL', default='')
 
 # ── Redis (cache, sesiones) ───────────────────────────────────────────────────
 # En dev sin .env, se conecta a localhost:6379 (Docker Desktop expone el puerto al host).
@@ -292,6 +301,12 @@ else:
     # real, ver tickets/consumers.py) queda bloqueado por CSP en producción.
     _WS_SOURCES = [f'wss://{h}' for h in ALLOWED_HOSTS if h and h not in ('localhost', '127.0.0.1')]
 
+# frame-ancestors reemplaza a X_FRAME_OPTIONS (eliminado más arriba): permite embeber
+# SkyDesk como iframe dentro de Nextcloud (NEXTCLOUD_EMBED_ORIGIN, ej. sky.redlinegs.com)
+# sin abrir el framing a cualquier origen. Sin la variable en .env, solo 'self'.
+_NC_EMBED_ORIGIN = config('NEXTCLOUD_EMBED_ORIGIN', default='')
+_FRAME_ANCESTORS = [SELF] + ([_NC_EMBED_ORIGIN] if _NC_EMBED_ORIGIN else [])
+
 CONTENT_SECURITY_POLICY = {
     'DIRECTIVES': {
         'default-src': [SELF],
@@ -300,6 +315,8 @@ CONTENT_SECURITY_POLICY = {
         'img-src': [SELF, 'data:', 'blob:'],
         'font-src': [SELF],
         'connect-src': [SELF] + _WS_SOURCES,
+        'frame-ancestors': _FRAME_ANCESTORS,
+        'form-action': [SELF],
     },
 }
 
