@@ -730,6 +730,12 @@ CHAT_PAGE_SIZE = 20
 # flex-wrap fluido "18" no correspondía a un número fijo de filas visuales porque la
 # cantidad de columnas variaba con el ancho de pantalla.
 GALLERY_PAGE_SIZE = 18
+# Lista de archivos sin miniatura (doc/xlsx/csv/etc.), aparte del mosaico — pagina
+# independiente de las imágenes/PDF (ver chat_attachments_more).
+FILES_PAGE_SIZE = 20
+# Adjuntos con miniatura (imagen o PDF) — separa el mosaico de arriba de la lista de
+# archivos de abajo, cada uno con su propia paginación "cargar más".
+_THUMB_Q = Q(mime_type__startswith='image/') | Q(mime_type='application/pdf')
 
 
 @login_required
@@ -760,16 +766,22 @@ def ticket_detail(request, pk):
         from attachments.models import Attachment
         from django.contrib.contenttypes.models import ContentType
         ct = ContentType.objects.get_for_model(Comment)
-        chat_attachments_qs = Attachment.objects.filter(
+        chat_attachments_base_qs = Attachment.objects.filter(
             content_type=ct, object_id__in=comment_ids,
         ).select_related('uploaded_by', 'uploaded_by__profile').order_by('-pk')
-        chat_attachments = list(chat_attachments_qs[:GALLERY_PAGE_SIZE])
-        oldest_attachment_pk = chat_attachments[-1].pk if chat_attachments else None
-        has_more_attachments = bool(oldest_attachment_pk) and chat_attachments_qs.filter(pk__lt=oldest_attachment_pk).exists()
+        chat_thumbs_qs = chat_attachments_base_qs.filter(_THUMB_Q)
+        chat_files_qs = chat_attachments_base_qs.exclude(_THUMB_Q)
+        chat_attachments_thumbs = list(chat_thumbs_qs[:GALLERY_PAGE_SIZE])
+        oldest_thumb_pk = chat_attachments_thumbs[-1].pk if chat_attachments_thumbs else None
+        has_more_thumbs = bool(oldest_thumb_pk) and chat_thumbs_qs.filter(pk__lt=oldest_thumb_pk).exists()
+        chat_attachments_files = list(chat_files_qs[:FILES_PAGE_SIZE])
+        oldest_file_pk = chat_attachments_files[-1].pk if chat_attachments_files else None
+        has_more_files = bool(oldest_file_pk) and chat_files_qs.filter(pk__lt=oldest_file_pk).exists()
     else:
-        chat_attachments = []
-        oldest_attachment_pk = None
-        has_more_attachments = False
+        chat_attachments_thumbs = []
+        chat_attachments_files = []
+        oldest_thumb_pk = oldest_file_pk = None
+        has_more_thumbs = has_more_files = False
     can_edit = _can_edit_ticket(request.user, ticket)
     can_archive_perm = _can_archive_ticket(request.user, ticket)
 
@@ -809,9 +821,12 @@ def ticket_detail(request, pk):
         'comments': comments,
         'has_older_comments': has_older_comments,
         'oldest_comment_pk': oldest_comment_pk,
-        'chat_attachments': chat_attachments,
-        'has_more_attachments': has_more_attachments,
-        'oldest_attachment_pk': oldest_attachment_pk,
+        'chat_attachments_thumbs': chat_attachments_thumbs,
+        'chat_attachments_files': chat_attachments_files,
+        'has_more_thumbs': has_more_thumbs,
+        'oldest_thumb_pk': oldest_thumb_pk,
+        'has_more_files': has_more_files,
+        'oldest_file_pk': oldest_file_pk,
         'events': events,
         'thread': thread,
         'thread_parent_keys': thread_parent_keys,
@@ -869,13 +884,18 @@ def comment_history(request, pk):
 
 @login_required
 def chat_attachments_more(request, pk):
-    """Fragmento con los `GALLERY_PAGE_SIZE` adjuntos del seguimiento anteriores a
-    `?before=<pk>`, para el botón "Cargar más adjuntos" debajo de la galería."""
+    """Fragmento con los adjuntos del seguimiento anteriores a `?before=<pk>`, para
+    los botones "Cargar más" debajo del mosaico (imagen/PDF) o de la lista de
+    archivos — cada uno pagina su propio tipo por separado (`?kind=thumbs|files`),
+    ver GALLERY_PAGE_SIZE / FILES_PAGE_SIZE."""
     from attachments.models import Attachment
     from django.contrib.contenttypes.models import ContentType
     ticket = get_object_or_404(Ticket, pk=pk)
     if not _can_see_ticket(request.user, ticket):
         raise PermissionDenied
+    kind = request.GET.get('kind', 'thumbs')
+    if kind not in ('thumbs', 'files'):
+        return HttpResponseBadRequest('Parámetro «kind» inválido.')
     try:
         before = int(request.GET.get('before', ''))
     except ValueError:
@@ -885,7 +905,9 @@ def chat_attachments_more(request, pk):
     qs = Attachment.objects.filter(
         content_type=ct, object_id__in=comment_ids, pk__lt=before,
     ).select_related('uploaded_by', 'uploaded_by__profile').order_by('-pk')
-    older = list(qs[:GALLERY_PAGE_SIZE])
+    qs = qs.filter(_THUMB_Q) if kind == 'thumbs' else qs.exclude(_THUMB_Q)
+    page_size = GALLERY_PAGE_SIZE if kind == 'thumbs' else FILES_PAGE_SIZE
+    older = list(qs[:page_size])
     oldest = older[-1].pk if older else None
     has_more = bool(oldest) and qs.filter(pk__lt=oldest).exists()
     html = render_to_string('tickets/partials/_gallery_fragment.html', {

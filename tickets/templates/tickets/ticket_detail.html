@@ -239,20 +239,39 @@
       {% endif %}
     </div>
 
-    {% if chat_attachments %}
+    {% if chat_attachments_thumbs or chat_attachments_files %}
       <div class="bg-base-100 rounded-2xl border border-base-300 p-5 mt-5">
         <h2 class="text-sm font-bold mb-3">Adjuntos del seguimiento</h2>
-        <!-- Columnas fijas (no flex-wrap fluido): así GALLERY_PAGE_SIZE = 6 cols x 3 filas
-             es un número exacto de ítems, no una cantidad que varía con el ancho de pantalla. -->
-        <div class="grid grid-cols-4 sm:grid-cols-6 gap-4" data-gallery-grid>
-          {% for a in chat_attachments %}{% include 'tickets/partials/_attachment.html' with in_chat=True gallery=True can_write_chat=can_write_chat %}{% endfor %}
-        </div>
-        {% if has_more_attachments %}
-          <div class="text-center mt-3" data-load-more-attachments-wrap>
-            <button type="button" class="btn btn-ghost btn-xs" data-load-more-attachments
-                    data-url="{% url 'tickets:chat_attachments_more' ticket.pk %}"
-                    data-before="{{ oldest_attachment_pk }}">Cargar más adjuntos</button>
+        {% if chat_attachments_thumbs %}
+          <!-- Columnas fijas (no flex-wrap fluido): así GALLERY_PAGE_SIZE = 6 cols x 3 filas
+               es un número exacto de ítems, no una cantidad que varía con el ancho de pantalla. -->
+          <div class="grid grid-cols-4 sm:grid-cols-6 gap-4" data-gallery-grid>
+            {% for a in chat_attachments_thumbs %}{% include 'tickets/partials/_attachment.html' with in_chat=True gallery=True can_write_chat=can_write_chat %}{% endfor %}
           </div>
+          {% if has_more_thumbs %}
+            <div class="text-center mt-3" data-load-more-attachments-wrap>
+              <button type="button" class="btn btn-ghost btn-xs" data-load-more-attachments
+                      data-url="{% url 'tickets:chat_attachments_more' ticket.pk %}"
+                      data-kind="thumbs" data-target="gallery-grid"
+                      data-before="{{ oldest_thumb_pk }}">Cargar más imágenes/PDF</button>
+            </div>
+          {% endif %}
+        {% endif %}
+        {% if chat_attachments_files %}
+          <!-- Los que no son imagen/PDF (sin miniatura) van aparte, en una lista de ancho
+               completo — no encajan en una celda angosta del mosaico. Pagina independiente
+               del mosaico de arriba (ver FILES_PAGE_SIZE en tickets/views.py). -->
+          <div class="flex flex-col gap-1.5{% if chat_attachments_thumbs %} mt-4{% endif %}" data-gallery-files>
+            {% for a in chat_attachments_files %}{% include 'tickets/partials/_attachment.html' with in_chat=True gallery=True can_write_chat=can_write_chat %}{% endfor %}
+          </div>
+          {% if has_more_files %}
+            <div class="text-center mt-3" data-load-more-attachments-wrap>
+              <button type="button" class="btn btn-ghost btn-xs" data-load-more-attachments
+                      data-url="{% url 'tickets:chat_attachments_more' ticket.pk %}"
+                      data-kind="files" data-target="gallery-files"
+                      data-before="{{ oldest_file_pk }}">Cargar más documentos</button>
+            </div>
+          {% endif %}
         {% endif %}
       </div>
     {% endif %}

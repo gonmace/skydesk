@@ -1,4 +1,4 @@
-<div class="inline-flex {% if gallery %}flex-col items-center{% else %}items-center gap-1{% endif %}">
+<div class="{% if a.has_thumbnail %}inline-flex {% if gallery %}flex-col items-center{% else %}items-center gap-1{% endif %}{% else %}flex items-center gap-1 w-full{% endif %}">
   {% if a.is_image %}
     <label for="img-modal-{{ a.pk }}" class="block relative cursor-pointer" title="{{ a.filename }}">
       <img src="{% url 'tickets:attachment_thumb' a.pk %}" alt="{{ a.filename }}"
@@ -10,7 +10,7 @@
       {% endif %}
     </label>
     {% if gallery %}
-      <span class="block text-[11px] text-base-content/70 mt-1 text-center font-medium">{{ a.created|date:"d/m/y H:i" }}</span>
+      <span class="block text-xs text-base-content/70 mt-1 text-center font-medium">{{ a.created|date:"d/m/y" }}</span>
     {% endif %}
     <input type="checkbox" id="img-modal-{{ a.pk }}" class="modal-toggle">
     <div class="modal" role="dialog">
@@ -40,17 +40,17 @@
       {% endif %}
     </a>
     {% if gallery %}
-      <span class="block text-[11px] text-base-content/70 mt-1 text-center font-medium">{{ a.created|date:"d/m/y H:i" }}</span>
+      <span class="block text-xs text-base-content/70 mt-1 text-center font-medium">{{ a.created|date:"d/m/y" }}</span>
     {% endif %}
   {% else %}
     <a href="{% url 'tickets:attachment_serve' a.pk %}" target="_blank" rel="noopener"
-       class="inline-flex items-center gap-2 bg-base-200 rounded-lg px-2.5 py-2 text-xs hover:bg-base-300 max-w-full relative">
+       class="flex items-center gap-2 bg-base-200 rounded-lg px-2.5 py-2 text-xs hover:bg-base-300 w-full relative">
       <span class="inline-flex items-center justify-center w-8 h-8 rounded shrink-0
         {% if a.ext == 'doc' or a.ext == 'docx' %}bg-info/15 text-info{% elif a.ext == 'xls' or a.ext == 'xlsx' or a.ext == 'csv' %}bg-success/15 text-success{% elif a.ext == 'ppt' or a.ext == 'pptx' %}bg-warning/15 text-warning{% else %}bg-base-300 text-base-content/60{% endif %}">
         <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>
       </span>
-      <span class="min-w-0">
-        <span class="block truncate">{{ a.filename }}</span>
+      <span class="min-w-0 flex-1">
+        <span class="block break-words">{{ a.filename }}</span>
         {% if a.ext %}<span class="block text-[10px] uppercase text-base-content/40">{{ a.ext }}</span>{% endif %}
       </span>
       {% if gallery and a.uploaded_by %}
@@ -60,7 +60,7 @@
       {% endif %}
     </a>
     {% if gallery %}
-      <span class="block text-[11px] text-base-content/70 mt-1 text-center font-medium">{{ a.created|date:"d/m/y H:i" }}</span>
+      <span class="block text-xs text-base-content/70 mt-1 text-center font-medium">{{ a.created|date:"d/m/y" }}</span>
     {% endif %}
   {% endif %}
   {% if can_write_chat %}{% if not in_chat or is_last_comment %}

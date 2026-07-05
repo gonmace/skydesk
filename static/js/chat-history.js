@@ -16,10 +16,19 @@
     btn.textContent = btn.dataset.label;
   }
 
+  // En dev/red local el fetch puede resolver en unos pocos ms: el spinner de setLoading()
+  // parpadea tan rápido que no se percibe. Se fuerza una duración mínima visible para que
+  // el usuario vea que el clic surtió efecto, sin demorar de más si la red es lenta.
+  var MIN_LOADING_MS = 300;
+
   function fetchMore(btn) {
     var url = btn.getAttribute('data-url') + '?before=' + encodeURIComponent(btn.getAttribute('data-before'));
-    return fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+    var kind = btn.getAttribute('data-kind');
+    if (kind) url += '&kind=' + encodeURIComponent(kind);
+    var request = fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
       .then(function (r) { return r.json(); });
+    var minDelay = new Promise(function (resolve) { setTimeout(resolve, MIN_LOADING_MS); });
+    return Promise.all([request, minDelay]).then(function (results) { return results[0]; });
   }
 
   document.addEventListener('click', function (ev) {
@@ -63,14 +72,16 @@
   }
 
   function loadMoreAttachments(btn) {
+    // Cada botón pagina un tipo (imagen/PDF o archivos) por separado, ver
+    // data-kind/data-target renderizados en ticket_detail.html.
     var wrap = btn.closest('[data-load-more-attachments-wrap]');
-    var grid = document.querySelector('[data-gallery-grid]');
-    if (!wrap || !grid) return;
+    var target = document.querySelector('[data-' + btn.getAttribute('data-target') + ']');
+    if (!wrap || !target) return;
     setLoading(btn);
     fetchMore(btn)
       .then(function (data) {
         if (!data.ok) throw new Error('bad response');
-        grid.insertAdjacentHTML('beforeend', data.html);
+        target.insertAdjacentHTML('beforeend', data.html);
         if (data.has_more) {
           btn.setAttribute('data-before', data.oldest);
           restore(btn);
