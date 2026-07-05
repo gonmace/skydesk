@@ -170,13 +170,13 @@ class NextcloudLoginTests(TestCase):
         )
         AllowedDomain.objects.create(domain='empresa.com')
 
-    def _token_and_userinfo_mocks(self, email='nuevo@empresa.com', displayname='Nuevo Usuario'):
+    def _token_and_userinfo_mocks(self, email='nuevo@empresa.com', displayname='Nuevo Usuario', uid=''):
         token_resp = Mock(status_code=200)
         token_resp.raise_for_status = Mock()
         token_resp.json.return_value = {'access_token': 'tok123'}
         info_resp = Mock(status_code=200)
         info_resp.raise_for_status = Mock()
-        info_resp.json.return_value = {'ocs': {'data': {'email': email, 'displayname': displayname}}}
+        info_resp.json.return_value = {'ocs': {'data': {'email': email, 'displayname': displayname, 'id': uid}}}
         return token_resp, info_resp
 
     def test_login_view_redirects_to_authorize_with_state(self):
@@ -255,6 +255,41 @@ class NextcloudLoginTests(TestCase):
 
         r = self.client.get(reverse('accounts:nextcloud_callback'), {'code': 'abc', 'state': state})
         self.assertRedirects(r, 'https://sky.empresa.com/apps/external/1', fetch_redirect_response=False)
+        self.assertIn('_auth_user_id', self.client.session)
+
+    @patch('accounts.views.requests.get')
+    @patch('accounts.views.requests.post')
+    def test_callback_saves_nextcloud_uid_to_profile(self, mock_post, mock_get):
+        self.client.get(reverse('accounts:nextcloud_login'))
+        state = self.client.session['nc_oauth_state']
+        mock_post.return_value, mock_get.return_value = self._token_and_userinfo_mocks(uid='nuevo.nc')
+
+        self.client.get(reverse('accounts:nextcloud_callback'), {'code': 'abc', 'state': state})
+        user = User.objects.get(email='nuevo@empresa.com')
+        self.assertEqual(user.profile.nextcloud_uid, 'nuevo.nc')
+
+
+class NextcloudUidMismatchMiddlewareTests(TestCase):
+    """Si la URL del iframe trae ?nc_uid=<otro> distinto al de la sesión activa (guardado en
+    el login vía Profile.nextcloud_uid), la sesión de SkyDesk se cierra — evita que quede
+    logueado el usuario anterior al cambiar de cuenta en Nextcloud sin recargar SkyDesk."""
+
+    def setUp(self):
+        self.user = User.objects.create_user('user@empresa.com', 'user@empresa.com', 'RealPass123')
+        Profile.objects.filter(user=self.user).update(nextcloud_uid='user.nc')
+        self.client.force_login(self.user)
+
+    def test_mismatched_nc_uid_logs_out(self):
+        r = self.client.get(reverse('tickets:board'), {'nc_uid': 'otro.nc'})
+        self.assertNotIn('_auth_user_id', self.client.session)
+        self.assertEqual(r.status_code, 302)  # login_required redirige tras el logout
+
+    def test_matching_nc_uid_keeps_session(self):
+        self.client.get(reverse('tickets:board'), {'nc_uid': 'user.nc'})
+        self.assertIn('_auth_user_id', self.client.session)
+
+    def test_no_nc_uid_param_keeps_session(self):
+        self.client.get(reverse('tickets:board'))
         self.assertIn('_auth_user_id', self.client.session)
 
 

@@ -541,6 +541,7 @@ def nextcloud_callback(request):
         data = info_resp.json()['ocs']['data']
         email = (data.get('email') or '').strip().lower()
         display_name = (data.get('displayname') or '').strip()
+        nc_uid = (data.get('id') or '').strip()
     except (requests.RequestException, ValueError, KeyError):
         messages.error(request, 'No se pudo completar el login con Nextcloud. Probá de nuevo.')
         return redirect('accounts:login')
@@ -570,6 +571,15 @@ def nextcloud_callback(request):
         user.is_active = True
         user.save(update_fields=['is_active'])
         Profile.objects.get_or_create(user=user, defaults={'role': resolve_default_role(email)})
+
+    if nc_uid:
+        # Se actualiza en cada login (no solo al crear la cuenta) para detectar, dentro del
+        # iframe de Nextcloud, que la sesión quedó de un usuario de Nextcloud distinto al
+        # que está logueado ahora ahí — ver NextcloudUidMismatchMiddleware.
+        profile, _ = Profile.objects.get_or_create(user=user, defaults={'role': resolve_default_role(email)})
+        if profile.nextcloud_uid != nc_uid:
+            profile.nextcloud_uid = nc_uid
+            profile.save(update_fields=['nextcloud_uid'])
 
     login(request, user, backend='accounts.backends.EmailBackend')
     messages.success(request, f'Bienvenido/a, {user.get_full_name() or user.email}.')

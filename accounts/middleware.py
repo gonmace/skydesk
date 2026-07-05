@@ -1,8 +1,31 @@
-"""Middlewares de accounts. Solo se registra en settings dentro del bloque `if DEBUG:`."""
+"""Middlewares de accounts."""
 from django.conf import settings
-from django.contrib.auth import get_user_model
+from django.contrib.auth import get_user_model, logout
 
 User = get_user_model()
+
+
+class NextcloudUidMismatchMiddleware:
+    """Desloguea si la sesión de SkyDesk quedó de otro usuario de Nextcloud.
+
+    SkyDesk se embebe en un iframe dentro de Nextcloud (External Sites), cuya URL puede
+    incluir el placeholder `{uid}` para pasar el usuario de Nextcloud actualmente logueado
+    ahí (?nc_uid={uid}). La sesión de SkyDesk es independiente de la de Nextcloud — si
+    alguien cierra sesión en Nextcloud y entra con otra cuenta, sin este chequeo el iframe
+    seguiría mostrando la sesión anterior de SkyDesk. Si `nc_uid` no coincide con el UID de
+    Nextcloud guardado en el login (`Profile.nextcloud_uid`, ver accounts.views.
+    nextcloud_callback), se cierra la sesión — el login vuelve a mostrar el botón SSO."""
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        nc_uid = request.GET.get('nc_uid')
+        if nc_uid and request.user.is_authenticated:
+            profile = getattr(request.user, 'profile', None)
+            if profile is None or profile.nextcloud_uid != nc_uid:
+                logout(request)
+        return self.get_response(request)
 
 
 class DevImpersonationMiddleware:

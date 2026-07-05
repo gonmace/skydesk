@@ -80,6 +80,11 @@ class Profile(models.Model):
     )
     role = models.CharField('Rol', max_length=20, choices=Role.choices, default=Role.EJECUTOR)
     created = models.DateTimeField(auto_now_add=True)
+    nextcloud_uid = models.CharField(
+        'UID de Nextcloud', max_length=255, blank=True,
+        help_text='Se completa solo al loguearse vía Nextcloud OAuth2 — usado para '
+                   'detectar que la sesión embebida quedó de otro usuario de Nextcloud.',
+    )
 
     @property
     def raci_letter(self):
