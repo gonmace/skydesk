@@ -975,6 +975,7 @@ def _store_files(request, ticket_or_comment, target):
         except ValidationError as exc:
             messages.error(request, f'{f.name}: {exc.messages[0]}')
         except Exception:
+            logger.exception('No se pudo subir el adjunto %s', f.name)
             messages.error(request, f'No se pudo subir «{f.name}» (error de almacenamiento).')
 
 

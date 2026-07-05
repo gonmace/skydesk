@@ -83,6 +83,8 @@ def _verify_image(uploaded_file):
         uploaded_file.seek(0)
         with Image.open(uploaded_file) as img:
             img.verify()
+    except Image.DecompressionBombError as exc:
+        raise ValidationError('La imagen es demasiado grande (demasiados píxeles).') from exc
     except (UnidentifiedImageError, OSError, ValueError) as exc:
         raise ValidationError('El archivo no es una imagen válida.') from exc
     finally:
