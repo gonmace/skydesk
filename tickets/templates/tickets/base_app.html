@@ -93,7 +93,7 @@
           </button>
 
           <div id="notif-menu" data-notif-menu-url="{% url 'notifications:menu_fragment' %}">{% include 'notifications/partials/_menu.html' %}</div>
-          <div class="dropdown dropdown-end">
+          <div id="nc-user-menu" class="dropdown dropdown-end">
             {# Avatar arriba + rol abajo, apilados: h-auto/min-h-0 deja crecer el btn dentro del h-14 del nav #}
             <button tabindex="0" class="btn btn-ghost btn-sm h-auto min-h-0 py-1 px-2" aria-label="Menú">
               <svg class="w-5 h-5 sm:hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
@@ -171,5 +171,6 @@
   <script src="{% static 'js/toast.js' %}" defer></script>
   <script src="{% static 'js/app.js' %}" defer></script>
   <script src="{% static 'js/live.js' %}" defer></script>
+  <script src="{% static 'js/embed-hide-usermenu.js' %}" defer></script>
   {% block app_scripts %}{% endblock %}
 {% endblock %}
