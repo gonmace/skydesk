@@ -1,9 +1,12 @@
-// Cuando SkyDesk corre embebido en el iframe de Nextcloud (External Sites), oculta el
-// menú de usuario (avatar, "Cerrar sesión") del header: dentro de Nextcloud la sesión se
-// gestiona desde ahí, no tiene sentido ofrecer un logout aparte de SkyDesk.
+// Cuando SkyDesk corre embebido en el iframe de Nextcloud (External Sites): oculta el
+// avatar y deshabilita el dropdown (perfil, "Cerrar sesión", etc. — la sesión se gestiona
+// desde Nextcloud), pero deja visible el badge de rol junto al botón del menú.
 (function () {
   if (window.self === window.top) return; // standalone: no tocar nada
 
-  var menu = document.getElementById('nc-user-menu');
-  if (menu) menu.style.display = 'none';
+  var avatar = document.getElementById('nc-avatar');
+  if (avatar) avatar.style.display = 'none';
+
+  var dropdownContent = document.getElementById('nc-user-dropdown-content');
+  if (dropdownContent) dropdownContent.style.display = 'none';
 })();

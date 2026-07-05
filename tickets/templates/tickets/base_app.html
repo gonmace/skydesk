@@ -98,11 +98,11 @@
             <button tabindex="0" class="btn btn-ghost btn-sm h-auto min-h-0 py-1 px-2" aria-label="Menú">
               <svg class="w-5 h-5 sm:hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
               <div class="hidden sm:flex flex-col items-center gap-0.5">
-                {% include 'tickets/partials/_avatar.html' with u=request.user size='w-7 h-7' %}
+                <span id="nc-avatar">{% include 'tickets/partials/_avatar.html' with u=request.user size='w-7 h-7' %}</span>
                 {% if nav_role_label %}<span class="badge badge-xs badge-role" data-role="{{ nav_role }}">{{ nav_role_label }}</span>{% endif %}
               </div>
             </button>
-            <ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box z-40 w-56 p-2 border border-base-300 shadow">
+            <ul id="nc-user-dropdown-content" tabindex="0" class="dropdown-content menu bg-base-100 rounded-box z-40 w-56 p-2 border border-base-300 shadow">
               <li class="sm:hidden menu-title text-xs truncate">{{ request.user.get_full_name|default:request.user.email|default:request.user.username }}{% if nav_role_label %} · {{ nav_role_label }}{% endif %}</li>
               <li class="sm:hidden"><a href="{% url 'tickets:board' %}">Tablero</a></li>
               <li class="sm:hidden"><a href="{% url 'tickets:my_tickets' %}">Mis tickets</a></li>
