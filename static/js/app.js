@@ -87,7 +87,7 @@
     ev.preventDefault();
     var btn = form.querySelector('button, [data-auto-submit]');
     if (btn) btn.disabled = true;
-    fetch(form.action || window.location.href, {
+    fetch(form.getAttribute('action') || window.location.href, {
       method: 'POST',
       body: new FormData(form),
       headers: { 'X-Requested-With': 'XMLHttpRequest' },
