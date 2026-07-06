@@ -288,6 +288,15 @@
   color: var(--color-base-100) !important; /* color del knob */
 }
 
+/* @tailwindcss/forms pinta un tilde (background-image) en todo checkbox:checked —
+   dentro de la pastilla del toggle de DaisyUI ese check queda flotando sobre el
+   knob (ver Estado en Cuentas). El estado ya lo comunica el color/posición. */
+.toggle,
+.toggle:checked,
+.toggle:indeterminate {
+  background-image: none !important;
+}
+
 /* ── Tabla responsive: en mobile cada fila se apila como card etiquetada ────── */
 @media (max-width: 767px) {
   .resp-table thead { display: none; }
