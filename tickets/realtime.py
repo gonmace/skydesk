@@ -30,6 +30,23 @@ def broadcast_board(ticket_id=None):
         pass
 
 
+def broadcast_comment(ticket_id):
+    """Avisa que hay un mensaje nuevo en el seguimiento de `ticket_id`: el tablero
+    refresca su contador y quien tenga abierto el detalle appendea los mensajes
+    nuevos por AJAX (ver chat-submit.js) — a diferencia de 'ticket.changed', NO
+    recarga la página, así no se pisa lo que otro usuario esté escribiendo."""
+    layer = get_channel_layer()
+    if layer is None:
+        return
+    try:
+        async_to_sync(layer.group_send)('board', {'type': 'board.changed', 'ticket_id': ticket_id})
+        async_to_sync(layer.group_send)(
+            f'ticket_{ticket_id}', {'type': 'comment.new', 'ticket_id': ticket_id},
+        )
+    except Exception:
+        pass
+
+
 def broadcast_notification(recipient_id):
     """Avisa al destinatario de una notificación nueva (badge/dropdown en vivo)."""
     layer = get_channel_layer()

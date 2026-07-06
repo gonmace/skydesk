@@ -4,7 +4,7 @@ from django.contrib.auth.forms import (
     AuthenticationForm, PasswordResetForm, SetPasswordForm,
 )
 
-from .models import AllowedDomain, AllowedEmail, NextcloudOAuthConfig, Role
+from .models import AllowedDomain, AllowedEmail, EmailConfig, NextcloudOAuthConfig, Role
 
 _INPUT = 'input input-bordered w-full'
 _SELECT = 'select select-bordered w-full'
@@ -173,6 +173,39 @@ class NextcloudOAuthConfigForm(forms.ModelForm):
     def clean_client_secret(self):
         secret = self.cleaned_data.get('client_secret', '').strip()
         return secret or (self.instance.client_secret if self.instance else '')
+
+
+class EmailConfigForm(forms.ModelForm):
+    """Editada solo por el superuser (accounts:email_config). La contraseña SMTP nunca
+    se re-muestra: si se deja vacía al guardar, se conserva el valor existente."""
+    password = forms.CharField(
+        label='Contraseña', required=False,
+        widget=forms.PasswordInput(attrs={
+            'class': _INPUT, 'placeholder': 'Dejar en blanco para no cambiar', 'autocomplete': 'new-password',
+        }, render_value=False),
+        help_text='Se guarda pero nunca se vuelve a mostrar. Dejar vacía conserva la actual.',
+    )
+
+    class Meta:
+        model = EmailConfig
+        fields = (
+            'enabled', 'host', 'port', 'use_tls', 'username', 'password',
+            'from_email', 'notify_assignment', 'notify_comment',
+        )
+        widgets = {
+            'enabled': forms.CheckboxInput(attrs={'class': _CHECKBOX}),
+            'host': forms.TextInput(attrs={'class': _INPUT, 'placeholder': 'smtp.dominio.com'}),
+            'port': forms.NumberInput(attrs={'class': _INPUT, 'min': 1, 'max': 65535}),
+            'use_tls': forms.CheckboxInput(attrs={'class': _CHECKBOX}),
+            'username': forms.TextInput(attrs={'class': _INPUT, 'placeholder': 'usuario@dominio.com'}),
+            'from_email': forms.TextInput(attrs={'class': _INPUT, 'placeholder': 'SkyDesk Tickets <noreply@dominio>'}),
+            'notify_assignment': forms.CheckboxInput(attrs={'class': _CHECKBOX}),
+            'notify_comment': forms.CheckboxInput(attrs={'class': _CHECKBOX}),
+        }
+
+    def clean_password(self):
+        password = self.cleaned_data.get('password', '').strip()
+        return password or (self.instance.password if self.instance else '')
 
 
 class AllowedEmailForm(forms.ModelForm):

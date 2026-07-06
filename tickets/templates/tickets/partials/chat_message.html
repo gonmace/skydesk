@@ -1,5 +1,5 @@
 {% load chat_extras %}
-<div class="flex gap-2">
+<div class="flex gap-2" data-comment-id="{{ c.pk }}">
   {% if c.author %}{% include 'tickets/partials/_avatar.html' with u=c.author size='w-9 h-9' %}{% else %}
     <div class="avatar-role w-9 h-9 rounded-full flex items-center justify-center shrink-0"><span class="text-[11px] font-bold">—</span></div>
   {% endif %}

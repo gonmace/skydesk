@@ -90,6 +90,22 @@ class LiveConsumerTests(TransactionTestCase):
         self.assertEqual(event, {'type': 'ticket.changed', 'ticket_id': ticket.pk})
         await communicator.disconnect()
 
+    async def test_subscriber_receives_comment_new(self):
+        owner = await self._make_user('owner3@e.com')
+        ticket = await self._make_ticket('Con chat', owner)
+
+        communicator = WebsocketCommunicator(LiveConsumer.as_asgi(), '/ws/live/')
+        communicator.scope['user'] = owner
+        await communicator.connect()
+        await communicator.send_json_to({'action': 'subscribe_ticket', 'id': ticket.pk})
+        await asyncio.sleep(0.2)   # darle tiempo al chequeo de visibilidad (DB) antes de emitir
+
+        layer = get_channel_layer()
+        await layer.group_send(f'ticket_{ticket.pk}', {'type': 'comment.new', 'ticket_id': ticket.pk})
+        event = await communicator.receive_json_from()
+        self.assertEqual(event, {'type': 'comment.new', 'ticket_id': ticket.pk})
+        await communicator.disconnect()
+
     @staticmethod
     async def _make_user(email):
         from asgiref.sync import sync_to_async

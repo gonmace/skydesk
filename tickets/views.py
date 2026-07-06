@@ -5,7 +5,6 @@ from datetime import timedelta
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.core.mail import send_mail
 from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import (
@@ -23,11 +22,12 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from accounts.models import Role
+from accounts.models import EmailConfig, Role
 from accounts.permissions import (
     has_capability, require_capability, roles_with_capability, users_with_capability,
 )
 from attachments import services as attachment_services
+from core.mail import send_mail_async
 
 from django.contrib.auth import get_user_model
 
@@ -35,7 +35,7 @@ from notifications.services import notify
 
 from .forms import CommentForm, ProjectForm, TicketForm
 from .models import Assignment, Comment, Label, Project, Ticket, TicketEvent
-from .realtime import broadcast_board
+from .realtime import broadcast_board, broadcast_comment
 
 logger = logging.getLogger(__name__)
 
@@ -64,18 +64,20 @@ def _lock_ticket(ticket_id):
 
 
 def _notify_assignment(request, ticket, users):
-    """Notifica (in-app + email) a cada persona recién asignada, salvo a quien la asigna."""
+    """Notifica (in-app + email según EmailConfig) a cada persona recién asignada,
+    salvo a quien la asigna."""
     link = request.build_absolute_uri(reverse('tickets:detail', args=[ticket.pk]))
     actor = request.user.email or request.user.username
+    send_email = EmailConfig.load().notify_assignment
     for u in users:
         if not u or u.pk == request.user.pk:
             continue
         notify(u, 'te asignó un ticket', actor=request.user, ticket=ticket)
-        if u.email:
-            send_mail(
+        if send_email and u.email:
+            send_mail_async(
                 f'[{ticket.key}] Te asignaron un ticket',
                 f'{actor} te asignó el ticket {ticket.key}: {ticket.title}\n\n{link}',
-                None, [u.email], fail_silently=True,
+                [u.email],
             )
 
 
@@ -152,6 +154,10 @@ def _notify_backlog_to_todo(actor, ticket):
 
 
 def _notify_new_comment(request, ticket, comment):
+    # Apagado por defecto (EmailConfig.notify_comment): un chat activo genera un
+    # correo por mensaje a cada participante. La notificación in-app va aparte.
+    if not EmailConfig.load().notify_comment:
+        return
     author_pk = getattr(comment.author, 'pk', None)
     recipients = {
         u.email for u in _ticket_people(ticket)
@@ -164,7 +170,7 @@ def _notify_new_comment(request, ticket, comment):
         f'Nuevo mensaje de seguimiento en {ticket.key} — {ticket.title}\n\n'
         f'{comment.body}\n\n{link}'
     )
-    send_mail(f'[{ticket.key}] Nuevo seguimiento', body, None, list(recipients), fail_silently=True)
+    send_mail_async(f'[{ticket.key}] Nuevo seguimiento', body, list(recipients))
 
 
 # ── Board (kanban) ────────────────────────────────────────────────────────────
@@ -821,7 +827,10 @@ def ticket_detail(request, pk):
         counts = {row['status']: row['n'] for row in children.values('status').annotate(n=Count('pk'))}
         split_summary = [(label, counts[value]) for value, label in Ticket.Status.choices if counts.get(value)]
     can_create = has_capability(request.user, 'tickets.create')
-    events = list(TicketEvent.objects.filter(ticket_id__in=thread).select_related('actor', 'ticket'))
+    # Más reciente primero (-pk desempata eventos con el mismo timestamp); el
+    # ordering del modelo queda cronológico para el resto de los usos.
+    events = list(TicketEvent.objects.filter(ticket_id__in=thread).select_related(
+        'actor', 'ticket').order_by('-created', '-pk'))
     for e in events:
         e.inherited = e.ticket_id != ticket.pk
     # Códigos de los ancestros (para el encabezado «Seguimiento — incluye SKY-x»).
@@ -893,6 +902,33 @@ def comment_history(request, pk):
 
 
 @login_required
+def comments_since(request, pk):
+    """Fragmento con los mensajes posteriores a `?after=<pk>`, para appendear al chat
+    en vivo cuando llega un push 'comment.new' (ver chat-submit.js::chatFetchNew) —
+    sin recargar la página, así no se pisa lo que el usuario esté escribiendo. El
+    lote llega hasta el último mensaje real del hilo, por eso acá `is_last_comment`
+    sí se calcula (el último del lote puede editarse/borrarse)."""
+    ticket = get_object_or_404(Ticket, pk=pk)
+    if not _can_see_ticket(request.user, ticket):
+        raise PermissionDenied
+    try:
+        after = int(request.GET.get('after', ''))
+    except ValueError:
+        return HttpResponseBadRequest('Falta o es inválido el parámetro «after».')
+    comments_qs = Comment.objects.filter(ticket_id__in=ticket.thread_ids()).select_related(
+        'author', 'author__profile', 'ticket',
+    ).prefetch_related('attachments')
+    newer = list(comments_qs.filter(pk__gt=after).order_by('pk'))
+    for c in newer:
+        c.inherited = c.ticket_id != ticket.pk
+    html = render_to_string('tickets/partials/_chat_new_fragment.html', {
+        'comments': newer,
+        'can_moderate_chat': has_capability(request.user, 'tickets.edit_any'),
+    }, request=request)
+    return JsonResponse({'ok': True, 'html': html})
+
+
+@login_required
 def chat_attachments_more(request, pk):
     """Fragmento con los adjuntos del seguimiento anteriores a `?before=<pk>`, para
     los botones "Cargar más" debajo del mosaico (imagen/PDF) o de la lista de
@@ -933,6 +969,7 @@ def comment_add(request, pk):
     ticket = get_object_or_404(Ticket, pk=pk)
     if not _can_write_chat(request.user, ticket):
         raise PermissionDenied
+    is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
     form = CommentForm(request.POST)
     if form.is_valid() and (form.cleaned_data['body'].strip() or request.FILES):
         comment = form.save(commit=False)
@@ -945,9 +982,23 @@ def comment_add(request, pk):
             if u.pk != request.user.pk:
                 notify(u, 'comentó en', actor=request.user, ticket=ticket)
         # comment_add no pasa por _log (no es un evento del historial) — el contador de
-        # mensajes de la card sí cambia, así que hay que avisar explícitamente.
-        broadcast_board(ticket.pk)
+        # mensajes de la card sí cambia, así que hay que avisar explícitamente. Se emite
+        # 'comment.new' (append por AJAX en los detalles abiertos) y no 'ticket.changed'
+        # (reload) para no pisar lo que otro usuario esté escribiendo.
+        broadcast_comment(ticket.pk)
+        if is_ajax:
+            comment.inherited = False
+            html = render_to_string('tickets/partials/chat_message.html', {
+                'c': comment, 'is_last_comment': True,
+                'can_moderate_chat': has_capability(request.user, 'tickets.edit_any'),
+            }, request=request)
+            # Drenar los messages que dejó _store_files (duplicado, error de subida):
+            # van como toasts en el JSON, no encolados para la próxima navegación.
+            warnings = [{'message': str(m), 'tag': m.level_tag} for m in messages.get_messages(request)]
+            return JsonResponse({'ok': True, 'html': html, 'comment_id': comment.pk, 'warnings': warnings})
     else:
+        if is_ajax:
+            return JsonResponse({'ok': False, 'error': 'El mensaje no puede estar vacío.'}, status=400)
         messages.error(request, 'El mensaje no puede estar vacío.')
     # #chat-compose: chat-submit.js devuelve el foco al textarea tras la recarga
     # (si no, hay que volver a hacer click ahí para seguir escribiendo).
@@ -1052,7 +1103,9 @@ def attachment_annotate(request, pk):
     for u in _ticket_people(ticket):
         if u.pk != request.user.pk:
             notify(u, 'comentó en', actor=request.user, ticket=ticket)
-    broadcast_board(ticket.pk)
+    # Es un mensaje de chat nuevo: append en vivo en los detalles abiertos, sin
+    # recargarles la página (quien anota recarga por su cuenta, ver image-annotate.js).
+    broadcast_comment(ticket.pk)
     return JsonResponse({'ok': True, 'id': new_version.pk})
 
 

@@ -8,7 +8,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from accounts.models import Profile, Role
+from accounts.models import EmailConfig, Profile, Role
 from attachments import services
 from attachments.backends.memory import MemoryBackend
 from notifications.models import Notification
@@ -423,6 +423,109 @@ class CommentGatingTests(TestCase):
         self.assertEqual(r.status_code, 403)
 
 
+AJAX = {'HTTP_X_REQUESTED_WITH': 'XMLHttpRequest'}
+
+
+@override_settings(**OV)
+class CommentAjaxTests(TestCase):
+    """comment_add con X-Requested-With devuelve el mensaje renderizado en JSON
+    (sin redirect) — el fallback no-AJAX (302) lo cubre CommentGatingTests."""
+
+    def setUp(self):
+        self.owner = make_user('a@e.com', Role.EJECUTOR)
+        self.t = Ticket.objects.create(title='x', reporter=self.owner)
+        self.url = reverse('tickets:comment_add', args=[self.t.pk])
+        self.client.force_login(self.owner)
+
+    def test_ajax_comment_returns_rendered_message(self):
+        r = self.client.post(self.url, {'body': 'hola ajax'}, **AJAX)
+        self.assertEqual(r.status_code, 200)
+        data = r.json()
+        self.assertTrue(data['ok'])
+        comment = self.t.comments.get()
+        self.assertEqual(data['comment_id'], comment.pk)
+        self.assertIn('hola ajax', data['html'])
+        self.assertIn(f'data-comment-id="{comment.pk}"', data['html'])
+        self.assertEqual(data['warnings'], [])
+
+    def test_ajax_empty_comment_returns_400(self):
+        r = self.client.post(self.url, {'body': '   '}, **AJAX)
+        self.assertEqual(r.status_code, 400)
+        self.assertFalse(r.json()['ok'])
+        self.assertEqual(self.t.comments.count(), 0)
+
+    def test_ajax_duplicate_attachment_returns_warning(self):
+        f1 = SimpleUploadedFile('a.txt', b'contenido', content_type='text/plain')
+        self.client.post(self.url, {'body': 'con adjunto', 'files': f1}, **AJAX)
+        f2 = SimpleUploadedFile('a.txt', b'contenido', content_type='text/plain')
+        r = self.client.post(self.url, {'body': 'repetido', 'files': f2}, **AJAX)
+        data = r.json()
+        self.assertTrue(data['ok'])
+        self.assertEqual(len(data['warnings']), 1)
+        self.assertEqual(data['warnings'][0]['tag'], 'info')
+
+    def test_comment_email_off_by_default(self):
+        dev = make_user('dev@e.com', Role.EJECUTOR)
+        Assignment.objects.create(ticket=self.t, user=dev, kind=Assignment.Kind.EJECUTOR)
+        self.client.post(self.url, {'body': 'hola'}, **AJAX)
+        self.assertEqual(len(mail.outbox), 0)
+        self.assertTrue(Notification.objects.filter(recipient=dev, verb__icontains='coment').exists())
+
+    def test_comment_email_when_enabled_in_config(self):
+        cfg = EmailConfig.load()
+        cfg.notify_comment = True
+        cfg.save()
+        dev = make_user('dev@e.com', Role.EJECUTOR)
+        Assignment.objects.create(ticket=self.t, user=dev, kind=Assignment.Kind.EJECUTOR)
+        self.client.post(self.url, {'body': 'hola'}, **AJAX)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn(dev.email, mail.outbox[0].to)
+
+
+@override_settings(**OV)
+class CommentsSinceTests(TestCase):
+    """comments_since devuelve solo los mensajes con pk > after, en orden, para el
+    append en vivo del chat (push 'comment.new')."""
+
+    def setUp(self):
+        self.owner = make_user('a@e.com', Role.EJECUTOR)
+        self.outsider = make_user('b@e.com', Role.EJECUTOR)
+        self.t = Ticket.objects.create(title='x', reporter=self.owner)
+        self.url = reverse('tickets:comments_since', args=[self.t.pk])
+
+    def test_returns_only_newer_comments_in_order(self):
+        c1 = Comment.objects.create(ticket=self.t, author=self.owner, body='uno')
+        c2 = Comment.objects.create(ticket=self.t, author=self.owner, body='dos')
+        c3 = Comment.objects.create(ticket=self.t, author=self.owner, body='tres')
+        self.client.force_login(self.owner)
+        r = self.client.get(self.url, {'after': c1.pk})
+        data = r.json()
+        self.assertTrue(data['ok'])
+        self.assertNotIn('uno', data['html'])
+        self.assertIn(f'data-comment-id="{c2.pk}"', data['html'])
+        self.assertIn(f'data-comment-id="{c3.pk}"', data['html'])
+        self.assertLess(data['html'].index('dos'), data['html'].index('tres'))
+
+    def test_outsider_forbidden(self):
+        self.client.force_login(self.outsider)
+        r = self.client.get(self.url, {'after': 0})
+        self.assertEqual(r.status_code, 403)
+
+    def test_invalid_after_is_400(self):
+        self.client.force_login(self.owner)
+        self.assertEqual(self.client.get(self.url).status_code, 400)
+        self.assertEqual(self.client.get(self.url, {'after': 'zzz'}).status_code, 400)
+
+    def test_includes_inherited_parent_comments(self):
+        parent_comment = Comment.objects.create(ticket=self.t, author=self.owner, body='del padre')
+        child = Ticket.objects.create(title='hija', reporter=self.owner, parent=self.t)
+        self.client.force_login(self.owner)
+        r = self.client.get(reverse('tickets:comments_since', args=[child.pk]), {'after': 0})
+        data = r.json()
+        self.assertIn(f'data-comment-id="{parent_comment.pk}"', data['html'])
+        self.assertIn('heredado', data['html'])  # badge de mensaje heredado
+
+
 @override_settings(**OV)
 class AssignmentNotifyTests(TestCase):
     def setUp(self):
@@ -461,6 +564,19 @@ class AssignmentNotifyTests(TestCase):
             'executors': [self.dev.pk],
         })
         self.assertTrue(Notification.objects.filter(recipient=self.dev).exists())
+
+    def test_assignment_email_disabled_by_config(self):
+        cfg = EmailConfig.load()
+        cfg.notify_assignment = False
+        cfg.save()
+        self.client.force_login(self.coord)
+        self.client.post(reverse('tickets:create'), {
+            'title': 'Sin correo', 'solicitante': 'Gerencia', 'priority': 'MEDIUM',
+            'executors': [self.dev.pk],
+        })
+        # La notificación in-app sale igual; solo se apaga el email.
+        self.assertTrue(Notification.objects.filter(recipient=self.dev, verb__icontains='asign').exists())
+        self.assertEqual(len(mail.outbox), 0)
 
 
 @override_settings(**OV)

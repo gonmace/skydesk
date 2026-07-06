@@ -11,7 +11,8 @@ from django.utils.http import urlsafe_base64_encode
 
 from .access import is_email_allowed, resolve_default_role
 from .models import (
-    AllowedDomain, AllowedEmail, NextcloudOAuthConfig, Profile, Role, RolePermission, UserPermission,
+    AllowedDomain, AllowedEmail, EmailConfig, NextcloudOAuthConfig, Profile, Role,
+    RolePermission, UserPermission,
 )
 from .permissions import has_capability
 
@@ -155,6 +156,90 @@ class NextcloudConfigViewTests(TestCase):
         })
         cfg = NextcloudConfig.load()
         self.assertEqual(cfg.token, 'original')
+
+
+@override_settings(**OV)
+class EmailConfigViewTests(TestCase):
+    """Solo el superuser puede ver/editar la config de correo (accounts:email_config)."""
+
+    def setUp(self):
+        self.user = User.objects.create_user('u@empresa.com', 'u@empresa.com', 'ClaveReal123', is_active=True)
+        self.superuser = User.objects.create_superuser('root@empresa.com', 'root@empresa.com', 'ClaveReal123')
+
+    def test_non_superuser_redirected(self):
+        self.client.force_login(self.user)
+        r = self.client.get(reverse('accounts:email_config'))
+        self.assertEqual(r.status_code, 302)
+
+    def test_superuser_can_view_and_save(self):
+        self.client.force_login(self.superuser)
+        self.assertEqual(self.client.get(reverse('accounts:email_config')).status_code, 200)
+        r = self.client.post(reverse('accounts:email_config'), {
+            'action': 'save', 'enabled': 'on', 'host': 'smtp.empresa.com', 'port': 465,
+            'username': 'bot@empresa.com', 'password': 'secreto123',
+            'from_email': 'SkyDesk <noreply@empresa.com>', 'notify_comment': 'on',
+        })
+        self.assertEqual(r.status_code, 302)
+        cfg = EmailConfig.load()
+        self.assertTrue(cfg.enabled)
+        self.assertEqual(cfg.host, 'smtp.empresa.com')
+        self.assertEqual(cfg.port, 465)
+        self.assertEqual(cfg.password, 'secreto123')
+        self.assertFalse(cfg.use_tls)          # checkbox apagado en el POST
+        self.assertFalse(cfg.notify_assignment)
+        self.assertTrue(cfg.notify_comment)
+
+    def test_saving_with_blank_password_keeps_existing(self):
+        EmailConfig.objects.create(pk=1, enabled=True, host='smtp.x.com', password='original')
+        self.client.force_login(self.superuser)
+        self.client.post(reverse('accounts:email_config'), {
+            'action': 'save', 'enabled': 'on', 'host': 'smtp.x.com', 'port': 587, 'password': '',
+        })
+        self.assertEqual(EmailConfig.load().password, 'original')
+
+    def test_action_test_sends_email_without_saving(self):
+        # Con `enabled` apagado la prueba usa el backend del settings (locmem en tests):
+        # el correo queda en mail.outbox y la config NO se guarda.
+        self.client.force_login(self.superuser)
+        r = self.client.post(reverse('accounts:email_config'), {'action': 'test', 'port': 587})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn(self.superuser.email, mail.outbox[0].to)
+        self.assertFalse(EmailConfig.load().enabled)
+
+
+@override_settings(**OV)
+class SendMailAsyncTests(TestCase):
+    """core.mail.send_mail_async: inline con locmem (tests), thread daemon en runtime."""
+
+    def test_locmem_sends_inline(self):
+        from core.mail import send_mail_async
+        send_mail_async('Asunto', 'Cuerpo', ['a@empresa.com'])
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].subject, 'Asunto')
+
+    @override_settings(EMAIL_BACKEND='django.core.mail.backends.console.EmailBackend')
+    def test_non_locmem_spawns_daemon_thread(self):
+        from core.mail import send_mail_async
+        with patch('core.mail.threading.Thread') as thread_cls:
+            send_mail_async('Asunto', 'Cuerpo', ['a@empresa.com'])
+        thread_cls.assert_called_once()
+        self.assertTrue(thread_cls.call_args.kwargs['daemon'])
+        thread_cls.return_value.start.assert_called_once()
+
+    def test_connection_from_config_when_enabled(self):
+        from core.mail import get_mail_connection
+        self.assertIsNone(get_mail_connection())   # sin config -> backend del settings
+        EmailConfig.objects.create(
+            pk=1, enabled=True, host='smtp.x.com', port=465, use_tls=False,
+            username='bot', password='s3cret',
+        )
+        conn = get_mail_connection()
+        self.assertIsNotNone(conn)
+        self.assertEqual(conn.host, 'smtp.x.com')
+        self.assertEqual(conn.port, 465)
+        self.assertEqual(conn.username, 'bot')
+        self.assertFalse(conn.use_tls)
 
 
 @override_settings(**OV)

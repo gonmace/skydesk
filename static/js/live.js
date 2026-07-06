@@ -3,6 +3,9 @@
 //                        con debounce para coalescer ráfagas de eventos.
 //  - 'ticket.changed' -> si es el ticket que se está viendo (ver #live-ticket-marker en
 //                        ticket_detail.html), recarga la página (v1 simple).
+//  - 'comment.new'    -> mensaje nuevo en el seguimiento del ticket visible: appendea
+//                        por AJAX (window.chatFetchNew, ver chat-submit.js) SIN recargar,
+//                        para no pisar lo que el usuario esté escribiendo.
 //  - 'notif.new'      -> re-pide el fragmento del badge/dropdown de notificaciones.
 // Degrada en silencio si el WS no conecta (CSP, nginx sin /ws/, etc.): la app sigue
 // funcionando normal, solo se pierde el push.
@@ -67,6 +70,12 @@
     } else if (data.type === 'ticket.changed') {
       if (!navigating && watchedThreadIds.indexOf(String(data.ticket_id)) !== -1) {
         window.location.reload();
+      }
+    } else if (data.type === 'comment.new') {
+      // Appendear es inofensivo aunque haya una navegación en curso — sin chequear
+      // `navigating` (chatFetchNew ya dedupea por data-comment-id).
+      if (watchedThreadIds.indexOf(String(data.ticket_id)) !== -1 && window.chatFetchNew) {
+        window.chatFetchNew();
       }
     } else if (data.type === 'notif.new') {
       refreshNotifMenu();

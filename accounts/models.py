@@ -149,6 +149,51 @@ class NextcloudOAuthConfig(models.Model):
         return self.userinfo_url or f'{self.base_url.rstrip("/")}/ocs/v2.php/cloud/user?format=json'
 
 
+class EmailConfig(models.Model):
+    """Config de correo saliente (fila única, pk=1), editable por el superuser.
+
+    Dos cosas distintas conviven acá a propósito (una sola pestaña "Correo"):
+    - SMTP: si `enabled` y hay `host`, pisa la configuración del .env (mismo patrón
+      que `attachments.NextcloudConfig` con el storage). Con `enabled=False` se sigue
+      usando el backend del settings.
+    - Toggles por evento: qué sucesos del ticket mandan email además de la
+      notificación in-app. `notify_comment` arranca apagado: un chat activo genera
+      un correo por mensaje a cada participante (decisión 2026-07).
+    """
+    enabled = models.BooleanField(
+        'Usar esta configuración SMTP', default=False,
+        help_text='Apagado: se usa la configuración de correo del servidor (.env).',
+    )
+    host = models.CharField('Servidor SMTP', max_length=255, blank=True)
+    port = models.PositiveIntegerField('Puerto', default=587)
+    use_tls = models.BooleanField('Usar TLS', default=True)
+    username = models.CharField('Usuario', max_length=255, blank=True)
+    password = models.CharField('Contraseña', max_length=500, blank=True)
+    from_email = models.CharField(
+        'Remitente', max_length=255, blank=True,
+        help_text='Ej. SkyDesk Tickets <noreply@dominio>. Vacío = el del servidor.',
+    )
+    notify_assignment = models.BooleanField(
+        'Enviar correo al asignar un ticket', default=True)
+    notify_comment = models.BooleanField(
+        'Enviar correo por cada mensaje de seguimiento', default=False,
+        help_text='Los participantes siempre reciben la notificación in-app (campanita).',
+    )
+    updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Configuración de correo'
+        verbose_name_plural = 'Configuración de correo'
+
+    def __str__(self):
+        return f'Correo ({"SMTP propio" if self.enabled else "settings"})'
+
+    @classmethod
+    def load(cls):
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+
 class RolePermission(models.Model):
     """Matriz rol × capacidad, editable por el superuser en el tablero de toggles."""
     role = models.CharField(max_length=20, choices=Role.choices)

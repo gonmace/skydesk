@@ -28,11 +28,12 @@ from attachments.models import NextcloudConfig
 from .access import is_email_allowed, resolve_default_role
 from .forms import (
     ActivationForm, AdminUserEditForm, AllowedDomainForm, AllowedEmailForm,
-    EmailAuthenticationForm, InviteForm, NextcloudOAuthConfigForm, ProfileNameForm,
-    RequestAccessForm,
+    EmailAuthenticationForm, EmailConfigForm, InviteForm, NextcloudOAuthConfigForm,
+    ProfileNameForm, RequestAccessForm,
 )
 from .models import (
-    AllowedDomain, AllowedEmail, NextcloudOAuthConfig, Profile, Role, RolePermission, UserPermission,
+    AllowedDomain, AllowedEmail, EmailConfig, NextcloudOAuthConfig, Profile, Role,
+    RolePermission, UserPermission,
 )
 from .permissions import CAPABILITIES, DEFAULT_ROLE_CAPS, INDIVIDUAL_OVERRIDE_ROLES, get_user_role
 
@@ -467,6 +468,61 @@ def nextcloud_config(request):
         'form': form, 'config': config,
         'oauth_form': oauth_form, 'oauth_config': oauth_config,
     })
+
+
+def _send_test_email(request, data):
+    """Envía un correo de prueba al superuser logueado con la config del form (sin
+    guardar): SMTP propio si `enabled` + host, o el backend del settings si no —
+    exactamente lo que quedaría efectivo al guardar."""
+    from django.core.mail import get_connection, send_mail
+    to = request.user.email
+    if not to:
+        messages.error(request, 'Tu cuenta no tiene email — no hay a dónde enviar la prueba.')
+        return
+    connection = None
+    from_email = settings.DEFAULT_FROM_EMAIL
+    if data['enabled'] and data['host']:
+        connection = get_connection(
+            'django.core.mail.backends.smtp.EmailBackend',
+            host=data['host'], port=data['port'], username=data['username'],
+            password=data['password'], use_tls=data['use_tls'],
+            timeout=getattr(settings, 'EMAIL_TIMEOUT', 10),
+        )
+        from_email = data['from_email'] or from_email
+    try:
+        send_mail(
+            'SkyDesk: correo de prueba',
+            'Si estás leyendo esto, la configuración de correo saliente funciona.',
+            from_email, [to], connection=connection, fail_silently=False,
+        )
+        messages.success(request, f'Correo de prueba enviado a {to}.')
+    except Exception as exc:
+        messages.error(request, f'No se pudo enviar el correo de prueba: {exc}')
+
+
+@_superuser_required
+def email_config(request):
+    """Config de correo editable solo por el superuser: SMTP (pisa al .env si
+    `enabled`, patrón NextcloudConfig) + qué eventos mandan email (los mensajes de
+    chat arrancan apagados — un chat activo es un correo por mensaje)."""
+    config = EmailConfig.load()
+    form = EmailConfigForm(instance=config)
+
+    if request.method == 'POST':
+        form = EmailConfigForm(request.POST, instance=config)
+        if request.POST.get('action') == 'test':
+            if form.is_valid():
+                _send_test_email(request, form.cleaned_data)
+            else:
+                messages.error(request, 'Revisá los datos antes de probar el envío.')
+        elif form.is_valid():
+            form.save()
+            messages.success(request, 'Configuración de correo actualizada.')
+            return redirect('accounts:email_config')
+        else:
+            messages.error(request, 'Revisá los datos.')
+
+    return render(request, 'accounts/email_config.html', {'form': form, 'config': config})
 
 
 # ── Login con Nextcloud (OAuth2) ────────────────────────────────────────────────

@@ -41,5 +41,6 @@ urlpatterns = [
     path('cuenta/<int:pk>/', views.user_edit, name='user_edit'),
     path('roles/', views.roles_board, name='roles_board'),
     path('nextcloud/', views.nextcloud_config, name='nextcloud_config'),
+    path('correo/', views.email_config, name='email_config'),
     path('dev/impersonar/', views.dev_impersonate, name='dev_impersonate'),
 ]

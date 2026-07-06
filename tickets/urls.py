@@ -33,6 +33,7 @@ urlpatterns = [
     path('comentario/<int:pk>/editar/', views.comment_edit, name='comment_edit'),
     path('comentario/<int:pk>/borrar/', views.comment_delete, name='comment_delete'),
     path('<int:pk>/comentarios/', views.comment_history, name='comment_history'),
+    path('<int:pk>/comentarios/nuevos/', views.comments_since, name='comments_since'),
     path('<int:pk>/adjuntos/', views.chat_attachments_more, name='chat_attachments_more'),
     path('<int:pk>/', views.ticket_detail, name='detail'),
     path('<int:pk>/editar/', views.ticket_edit, name='edit'),

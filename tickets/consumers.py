@@ -54,5 +54,8 @@ class LiveConsumer(AsyncJsonWebsocketConsumer):
     async def ticket_changed(self, event):
         await self.send_json({'type': 'ticket.changed', 'ticket_id': event.get('ticket_id')})
 
+    async def comment_new(self, event):
+        await self.send_json({'type': 'comment.new', 'ticket_id': event.get('ticket_id')})
+
     async def notif_new(self, event):
         await self.send_json({'type': 'notif.new'})

@@ -191,7 +191,8 @@
       <div class="px-5 py-3 border-b border-base-200">
         <h2 class="text-sm font-bold">Seguimiento{% if thread_parent_keys %} <span class="text-xs text-base-content/40 font-normal">· incluye {{ thread_parent_keys|join:", " }}</span>{% endif %}</h2>
       </div>
-      <div class="flex-1 p-5 space-y-4 overflow-y-auto max-h-[26rem]" data-chat-messages>
+      <div class="flex-1 p-5 space-y-4 overflow-y-auto max-h-[26rem]" data-chat-messages
+           data-since-url="{% url 'tickets:comments_since' ticket.pk %}">
         {% if has_older_comments %}
           <div class="text-center pb-1" data-load-older-wrap>
             <button type="button" class="btn btn-ghost btn-xs" data-load-older
@@ -202,7 +203,7 @@
         {% for c in comments %}
           {% include 'tickets/partials/chat_message.html' with is_last_comment=forloop.last %}
         {% empty %}
-          <p class="text-sm text-base-content/40 text-center py-8">Todavía no hay mensajes de seguimiento.</p>
+          <p class="text-sm text-base-content/40 text-center py-8" data-chat-empty>Todavía no hay mensajes de seguimiento.</p>
         {% endfor %}
       </div>
       {% if can_write_chat %}
