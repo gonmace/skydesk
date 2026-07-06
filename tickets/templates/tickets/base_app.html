@@ -18,33 +18,35 @@
         <nav class="hidden sm:flex items-center gap-1 flex-1 min-w-0 overflow-x-auto">
           {% url 'tickets:board' as u_board %}
           {% url 'tickets:my_tickets' as u_mine %}
-          <a href="{{ u_board }}" class="shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-sm font-semibold {% if request.path == u_board %}bg-primary/10 text-primary{% else %}text-base-content/50 hover:text-base-content hover:bg-base-200{% endif %}">Tablero</a>
-          <a href="{{ u_mine }}" class="shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-sm font-semibold {% if request.path == u_mine %}bg-primary/10 text-primary{% else %}text-base-content/50 hover:text-base-content hover:bg-base-200{% endif %}">Mis tickets</a>
+          <a href="{{ u_board }}" data-nav-tab class="shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-sm font-semibold {% if request.path == u_board %}bg-primary/10 text-primary{% else %}text-base-content/50 hover:text-base-content hover:bg-base-200{% endif %}">Tablero</a>
+          <a href="{{ u_mine }}" data-nav-tab class="shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-sm font-semibold {% if request.path == u_mine %}bg-primary/10 text-primary{% else %}text-base-content/50 hover:text-base-content hover:bg-base-200{% endif %}">Mis tickets</a>
           {% if nav_can_dashboard %}
             {% url 'tickets:dashboard' as u_dash %}
-            <a href="{{ u_dash }}" class="shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-sm font-semibold {% if request.path == u_dash %}bg-primary/10 text-primary{% else %}text-base-content/50 hover:text-base-content hover:bg-base-200{% endif %}">Dashboard</a>
+            <a href="{{ u_dash }}" data-nav-tab class="shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-sm font-semibold {% if request.path == u_dash %}bg-primary/10 text-primary{% else %}text-base-content/50 hover:text-base-content hover:bg-base-200{% endif %}">Dashboard</a>
           {% endif %}
           {% if nav_can_seguimiento %}
             {% url 'tickets:seguimiento' as u_seg %}
-            <a href="{{ u_seg }}" class="shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-sm font-semibold {% if request.path == u_seg %}bg-primary/10 text-primary{% else %}text-base-content/50 hover:text-base-content hover:bg-base-200{% endif %}">Seguimiento</a>
+            <a href="{{ u_seg }}" data-nav-tab class="shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-sm font-semibold {% if request.path == u_seg %}bg-primary/10 text-primary{% else %}text-base-content/50 hover:text-base-content hover:bg-base-200{% endif %}">Seguimiento</a>
           {% endif %}
           {% if nav_can_projects %}
             {% url 'tickets:projects' as u_proj %}
-            <a href="{{ u_proj }}" class="shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-sm font-semibold {% if request.path == u_proj %}bg-primary/10 text-primary{% else %}text-base-content/50 hover:text-base-content hover:bg-base-200{% endif %}">Proyectos</a>
+            <a href="{{ u_proj }}" data-nav-tab class="shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-sm font-semibold {% if request.path == u_proj %}bg-primary/10 text-primary{% else %}text-base-content/50 hover:text-base-content hover:bg-base-200{% endif %}">Proyectos</a>
           {% endif %}
           {% if nav_can_labels %}
             {% url 'tickets:labels' as u_lab %}
-            <a href="{{ u_lab }}" class="shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-sm font-semibold {% if request.path == u_lab %}bg-primary/10 text-primary{% else %}text-base-content/50 hover:text-base-content hover:bg-base-200{% endif %}">Tipos de Actividad</a>
+            <a href="{{ u_lab }}" data-nav-tab class="shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-sm font-semibold {% if request.path == u_lab %}bg-primary/10 text-primary{% else %}text-base-content/50 hover:text-base-content hover:bg-base-200{% endif %}">Tipos de Actividad</a>
+          {% endif %}
+          {% if nav_can_accounts %}
+            {% url 'accounts:access_admin' as u_acc %}
+            <a href="{{ u_acc }}" data-nav-tab class="shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-sm font-semibold {% if request.path == u_acc %}bg-primary/10 text-primary{% else %}text-base-content/50 hover:text-base-content hover:bg-base-200{% endif %}">Cuentas</a>
           {% endif %}
           {% if nav_is_superuser %}
-            {% url 'accounts:access_admin' as u_acc %}
             {% url 'accounts:roles_board' as u_rol %}
             {% url 'accounts:nextcloud_config' as u_ncloud %}
             {% url 'accounts:email_config' as u_mail %}
-            <a href="{{ u_acc }}" class="shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-sm font-semibold {% if request.path == u_acc %}bg-primary/10 text-primary{% else %}text-base-content/50 hover:text-base-content hover:bg-base-200{% endif %}">Cuentas</a>
-            <a href="{{ u_rol }}" class="shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-sm font-semibold {% if request.path == u_rol %}bg-primary/10 text-primary{% else %}text-base-content/50 hover:text-base-content hover:bg-base-200{% endif %}">Roles</a>
-            <a href="{{ u_ncloud }}" class="shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-sm font-semibold {% if request.path == u_ncloud %}bg-primary/10 text-primary{% else %}text-base-content/50 hover:text-base-content hover:bg-base-200{% endif %}">Nextcloud</a>
-            <a href="{{ u_mail }}" class="shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-sm font-semibold {% if request.path == u_mail %}bg-primary/10 text-primary{% else %}text-base-content/50 hover:text-base-content hover:bg-base-200{% endif %}">Correo</a>
+            <a href="{{ u_rol }}" data-nav-tab class="shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-sm font-semibold {% if request.path == u_rol %}bg-primary/10 text-primary{% else %}text-base-content/50 hover:text-base-content hover:bg-base-200{% endif %}">Roles</a>
+            <a href="{{ u_ncloud }}" data-nav-tab class="shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-sm font-semibold {% if request.path == u_ncloud %}bg-primary/10 text-primary{% else %}text-base-content/50 hover:text-base-content hover:bg-base-200{% endif %}">Nextcloud</a>
+            <a href="{{ u_mail }}" data-nav-tab class="shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-sm font-semibold {% if request.path == u_mail %}bg-primary/10 text-primary{% else %}text-base-content/50 hover:text-base-content hover:bg-base-200{% endif %}">Correo</a>
           {% endif %}
         </nav>
 
@@ -112,8 +114,10 @@
               {% if nav_can_seguimiento %}<li class="sm:hidden"><a href="{% url 'tickets:seguimiento' %}">Seguimiento</a></li>{% endif %}
               {% if nav_can_projects %}<li class="sm:hidden"><a href="{% url 'tickets:projects' %}">Proyectos</a></li>{% endif %}
               {% if nav_can_labels %}<li class="sm:hidden"><a href="{% url 'tickets:labels' %}">Tipos de Actividad</a></li>{% endif %}
-              {% if nav_is_superuser %}
+              {% if nav_can_accounts %}
                 <li class="sm:hidden"><a href="{% url 'accounts:access_admin' %}">Cuentas</a></li>
+              {% endif %}
+              {% if nav_is_superuser %}
                 <li class="sm:hidden"><a href="{% url 'accounts:roles_board' %}">Roles</a></li>
                 <li class="sm:hidden"><a href="{% url 'accounts:nextcloud_config' %}">Nextcloud</a></li>
                 <li class="sm:hidden"><a href="{% url 'accounts:email_config' %}">Correo</a></li>

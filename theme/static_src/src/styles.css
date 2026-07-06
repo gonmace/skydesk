@@ -377,6 +377,7 @@
 .badge-role[data-role="EXPERTO"]     { --role-color: var(--color-info); }
 .badge-role[data-role="EJECUTOR"]    { --role-color: var(--color-success); }
 .badge-role[data-role="SEGUIMIENTO"] { --role-color: var(--color-accent); }
+.badge-role[data-role="ADMINISTRADOR"] { --role-color: var(--color-warning); }
 
 /* ── Avatar — gris neutro adaptado al tema, con borde del mismo color ───────── */
 .avatar-role {

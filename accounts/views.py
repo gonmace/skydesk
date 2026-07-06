@@ -29,13 +29,16 @@ from .access import is_email_allowed, resolve_default_role
 from .forms import (
     ActivationForm, AdminUserEditForm, AllowedDomainForm, AllowedEmailForm,
     EmailAuthenticationForm, EmailConfigForm, InviteForm, NextcloudOAuthConfigForm,
-    ProfileNameForm, RequestAccessForm,
+    ProfileNameForm, RequestAccessForm, role_choices_for,
 )
 from .models import (
     AllowedDomain, AllowedEmail, EmailConfig, NextcloudOAuthConfig, Profile, Role,
     RolePermission, UserPermission,
 )
-from .permissions import CAPABILITIES, DEFAULT_ROLE_CAPS, INDIVIDUAL_OVERRIDE_ROLES, get_user_role
+from .permissions import (
+    CAPABILITIES, DEFAULT_ROLE_CAPS, INDIVIDUAL_OVERRIDE_ROLES, get_user_role,
+    has_capability,
+)
 
 User = get_user_model()
 
@@ -80,6 +83,28 @@ def _superuser_required(view):
             raise PermissionDenied
         return redirect_to_login(request.get_full_path(), reverse('accounts:login'))
     return wrapped
+
+
+def _accounts_manager_required(view):
+    """Gate de la página Cuentas: superuser o capability accounts.manage (coordinador
+    por defecto). Mismo criterio de redirects que _superuser_required."""
+    @wraps(view)
+    def wrapped(request, *args, **kwargs):
+        if request.user.is_authenticated:
+            if has_capability(request.user, 'accounts.manage'):
+                return view(request, *args, **kwargs)
+            raise PermissionDenied
+        return redirect_to_login(request.get_full_path(), reverse('accounts:login'))
+    return wrapped
+
+
+def _can_manage_target(viewer, target):
+    """Un gestor de cuentas no-superuser (coordinador) no ve ni toca superusers ni
+    cuentas con rol ADMINISTRADOR — para él no existen (se filtran del listado y
+    cualquier POST directo sobre ellas rebota)."""
+    if viewer.is_superuser:
+        return True
+    return not target.is_superuser and get_user_role(target) != Role.ADMINISTRADOR
 
 
 def _client_ip(request):
@@ -190,12 +215,12 @@ class CustomLoginView(LoginView):
 
 # ── Allow-list (solo superuser) ──────────────────────────────────────────────
 
-@_superuser_required
+@_accounts_manager_required
 def access_admin(request):
     if request.method == 'POST':
         action = request.POST.get('action')
         if action == 'add_domain':
-            form = AllowedDomainForm(request.POST)
+            form = AllowedDomainForm(request.POST, viewer=request.user)
             if form.is_valid():
                 obj = form.save(commit=False)
                 obj.created_by = request.user
@@ -204,7 +229,7 @@ def access_admin(request):
             else:
                 messages.error(request, 'Revisá los datos del dominio.')
         elif action == 'add_email':
-            form = AllowedEmailForm(request.POST)
+            form = AllowedEmailForm(request.POST, viewer=request.user)
             if form.is_valid():
                 obj = form.save(commit=False)
                 obj.created_by = request.user
@@ -213,7 +238,7 @@ def access_admin(request):
             else:
                 messages.error(request, 'Revisá los datos del correo.')
         elif action == 'invite':
-            form = InviteForm(request.POST)
+            form = InviteForm(request.POST, viewer=request.user)
             if form.is_valid():
                 email = form.cleaned_data['email']
                 role = form.cleaned_data['role']
@@ -246,7 +271,8 @@ def access_admin(request):
         elif action == 'set_email_role':
             obj = get_object_or_404(AllowedEmail, pk=request.POST.get('id'))
             role = request.POST.get('default_role', '')
-            if role and role not in dict(Role.choices):
+            # role_choices_for: para un no-superuser, ADMINISTRADOR no es un rol válido.
+            if role and role not in dict(role_choices_for(request.user)):
                 messages.error(request, 'Rol inválido.')
             else:
                 obj.default_role = role  # '' = sin rol (cae al default del dominio / EJECUTOR)
@@ -254,6 +280,8 @@ def access_admin(request):
                 messages.success(request, f'Rol de «{obj.email}» actualizado.')
         elif action == 'toggle_user':
             target = get_object_or_404(User, pk=request.POST.get('id'))
+            if not _can_manage_target(request.user, target):
+                raise PermissionDenied
             if target.pk == request.user.pk or target.is_superuser:
                 messages.error(request, 'No podés cambiar el estado de este usuario.')
             elif not target.is_active and not target.has_usable_password():
@@ -271,6 +299,8 @@ def access_admin(request):
                 messages.success(request, f'Usuario «{target.email or target.username}» {estado}.')
         elif action == 'resend_invite':
             target = get_object_or_404(User, pk=request.POST.get('id'))
+            if not _can_manage_target(request.user, target):
+                raise PermissionDenied
             if target.is_active:
                 messages.info(request, 'Ese usuario ya tiene la cuenta activa.')
             else:
@@ -278,6 +308,8 @@ def access_admin(request):
                 messages.success(request, f'Invitación reenviada a «{target.email}».')
         elif action == 'delete_user':
             target = get_object_or_404(User, pk=request.POST.get('id'))
+            if not _can_manage_target(request.user, target):
+                raise PermissionDenied
             label = target.email or target.username
             if target.pk == request.user.pk or target.is_superuser:
                 messages.error(request, 'No podés eliminar este usuario.')
@@ -299,26 +331,40 @@ def access_admin(request):
         return redirect('accounts:access_admin')
 
     users_qs = User.objects.select_related('profile').order_by('is_active', 'email')
+    domains = AllowedDomain.objects.all()
+    emails = AllowedEmail.objects.all()
+    if not request.user.is_superuser:
+        # Para el coordinador con accounts.manage, los superusers y el rol
+        # ADMINISTRADOR (espía solo-lectura) no existen: ni en el listado de cuentas
+        # ni en los dominios/correos habilitados con ese rol por defecto.
+        users_qs = users_qs.exclude(is_superuser=True).exclude(profile__role=Role.ADMINISTRADOR)
+        domains = domains.exclude(default_role=Role.ADMINISTRADOR)
+        emails = emails.exclude(default_role=Role.ADMINISTRADOR)
     return render(request, 'accounts/access_admin.html', {
-        'domains': AllowedDomain.objects.all(),
-        'emails': AllowedEmail.objects.all(),
-        'role_choices': Role.choices,
+        'domains': domains,
+        'emails': emails,
+        'role_choices': role_choices_for(request.user),
         'users': Paginator(users_qs, 20).get_page(request.GET.get('page')),
-        'domain_form': AllowedDomainForm(),
-        'email_form': AllowedEmailForm(),
-        'invite_form': InviteForm(),
+        'domain_form': AllowedDomainForm(viewer=request.user),
+        'email_form': AllowedEmailForm(viewer=request.user),
+        'invite_form': InviteForm(viewer=request.user),
     })
 
 
-@_superuser_required
+@_accounts_manager_required
 def user_edit(request, pk):
     target = get_object_or_404(User, pk=pk)
+    if not _can_manage_target(request.user, target):
+        raise PermissionDenied
     if request.method == 'POST':
         action = request.POST.get('action', 'save_account')
         # Los overrides individuales solo existen para roles en INDIVIDUAL_OVERRIDE_ROLES
         # (ver accounts/permissions.py) — igual se revalida acá server-side, no solo
-        # ocultando la sección en el template.
+        # ocultando la sección en el template. Editarlos es gestión de privilegios:
+        # queda reservado al superuser (el coordinador solo edita nombre/rol).
         if action in ('save_permissions', 'reset_permissions'):
+            if not request.user.is_superuser:
+                raise PermissionDenied
             if get_user_role(target) not in INDIVIDUAL_OVERRIDE_ROLES:
                 messages.error(request, 'Este rol no admite configuración individual.')
                 return redirect('accounts:user_edit', pk=target.pk)
@@ -334,7 +380,7 @@ def user_edit(request, pk):
                 messages.success(request, 'Permisos personalizados de la cuenta actualizados.')
             return redirect('accounts:user_edit', pk=target.pk)
 
-        form = AdminUserEditForm(request.POST, instance=target)
+        form = AdminUserEditForm(request.POST, instance=target, viewer=request.user)
         if form.is_valid():
             form.save()
             new_role = form.cleaned_data['role']
@@ -346,10 +392,10 @@ def user_edit(request, pk):
             messages.success(request, f'Cuenta «{target.email or target.username}» actualizada.')
             return redirect('accounts:access_admin')
     else:
-        form = AdminUserEditForm(instance=target)
+        form = AdminUserEditForm(instance=target, viewer=request.user)
 
     target_role = get_user_role(target)
-    show_overrides = target_role in INDIVIDUAL_OVERRIDE_ROLES
+    show_overrides = target_role in INDIVIDUAL_OVERRIDE_ROLES and request.user.is_superuser
     permission_rows = []
     if show_overrides:
         overrides = {up.capability: up.enabled for up in UserPermission.objects.filter(user=target)}

@@ -237,8 +237,32 @@ class SubproductCoordinatorBoardTests(TestCase):
         statuses = {c.split('data-status="')[1].split('"')[0] for c in cards}
         self.assertEqual(statuses, {'IN_PROGRESS', 'TODO'})
         self.assertTrue(all('data-merged="1"' not in c for c in cards))
-        # Solo lectura: el coordinador no arrastra subtickets ajenos.
+        # El coordinador SÍ arrastra los subtickets ajenos (tiene tickets.move) —
+        # las cards no van como solo-lectura, pero conservan el badge del ejecutor.
+        self.assertTrue(all('data-readonly="1"' not in c for c in cards))
+        self.assertTrue(any('d1@e.com' in c for c in cards))
+
+    def test_experto_cards_are_readonly(self):
+        # El experto comparte el tablero por ticket pero no tiene tickets.move:
+        # sus cards de subticket siguen siendo solo-lectura.
+        exp = make_user('exp2@e.com', Role.EXPERTO)
+        Assignment.objects.create(ticket=self.mixed, user=exp, kind=Assignment.Kind.EXPERTO)
+        self.client.force_login(exp)
+        r = self.client.get(reverse('tickets:board'))
+        cards = self._cards(r.content.decode(), self.mixed)
+        self.assertTrue(cards)
         self.assertTrue(all('data-readonly="1"' in c for c in cards))
+
+    def test_coordinator_merged_card_carries_group_assignment_ids(self):
+        self.client.force_login(self.coord)
+        r = self.client.get(reverse('tickets:board'))
+        cards = self._cards(r.content.decode(), self.aligned)
+        self.assertEqual(len(cards), 1, cards)
+        pks = sorted(self.aligned.assignments.values_list('pk', flat=True))
+        ids_attr = cards[0].split('data-assignment-ids="')[1].split('"')[0]
+        self.assertEqual(sorted(int(x) for x in ids_attr.split(',')), pks)
+        self.assertNotIn('data-readonly="1"', cards[0])
+        self.assertNotIn('data-ghost="1"', cards[0])
 
     def test_aligned_progress_merges_into_one_card(self):
         self.client.force_login(self.coord)
@@ -713,7 +737,9 @@ class SubticketFlowTests(TestCase):
         self.assertEqual(self.ticket.status, Ticket.Status.IN_PROGRESS)
 
     def test_executor_cannot_move_others_subticket(self):
-        self.assertEqual(self._move(self.dev1, self.a2.pk, 'IN_PROGRESS').status_code, 404)
+        # 403 (no 404): el assignment existe, pero mover subtickets ajenos requiere
+        # tickets.assign (coordinador) — ver CoordinatorMovesSubticketsTests.
+        self.assertEqual(self._move(self.dev1, self.a2.pk, 'IN_PROGRESS').status_code, 403)
 
     def test_can_drag_to_done(self):
         r = self._move(self.dev1, self.a1.pk, 'DONE')
@@ -750,6 +776,70 @@ class SubticketFlowTests(TestCase):
         self.client.post(reverse('tickets:suspend', args=[self.ticket.pk]))
         self.ticket.refresh_from_db()
         self.assertEqual(self.ticket.status, Ticket.Status.WAITING)
+
+
+@override_settings(**OV)
+class CoordinatorMovesSubticketsTests(TestCase):
+    """El coordinador (tickets.assign) también arrastra los subtickets ajenos de un
+    ticket multiproducto — de a uno o el grupo fusionado entero (`assignments`)."""
+
+    def setUp(self):
+        self.coord = make_user('coord@e.com', Role.COORDINADOR)
+        self.dev1 = make_user('d1@e.com', Role.EJECUTOR)
+        self.dev2 = make_user('d2@e.com', Role.EJECUTOR)
+        self.ticket = Ticket.objects.create(title='T', reporter=self.coord, has_subproducts=True)
+        self.a1 = Assignment.objects.create(ticket=self.ticket, user=self.dev1, kind=Assignment.Kind.EJECUTOR)
+        self.a2 = Assignment.objects.create(ticket=self.ticket, user=self.dev2, kind=Assignment.Kind.EJECUTOR)
+        self.ticket.recompute_status()
+
+    def _move(self, user, payload):
+        self.client.force_login(user)
+        return self.client.post(reverse('tickets:assignment_move'),
+                                data=json.dumps(payload), content_type='application/json')
+
+    def test_coordinator_moves_others_subticket(self):
+        r = self._move(self.coord, {'assignment': self.a1.pk, 'status': 'IN_PROGRESS'})
+        self.assertEqual(r.status_code, 200)
+        self.a1.refresh_from_db(); self.a2.refresh_from_db()
+        self.assertEqual(self.a1.status, 'IN_PROGRESS')
+        self.assertEqual(self.a2.status, 'TODO')
+        self.assertTrue(TicketEvent.objects.filter(
+            ticket=self.ticket, detail__icontains='movió el subticket de').exists())
+
+    def test_coordinator_moves_merged_group(self):
+        r = self._move(self.coord, {'assignments': [self.a1.pk, self.a2.pk], 'status': 'IN_PROGRESS'})
+        self.assertEqual(r.status_code, 200)
+        self.a1.refresh_from_db(); self.a2.refresh_from_db()
+        self.assertEqual(self.a1.status, 'IN_PROGRESS')
+        self.assertEqual(self.a2.status, 'IN_PROGRESS')
+        self.ticket.refresh_from_db()
+        self.assertEqual(self.ticket.status, Ticket.Status.IN_PROGRESS)
+
+    def test_coordinator_drags_others_subticket_to_done(self):
+        r = self._move(self.coord, {'assignment': self.a1.pk, 'status': 'DONE'})
+        self.assertEqual(r.status_code, 200)
+        self.a1.refresh_from_db()
+        self.assertEqual(self.a1.status, 'DONE')
+        self.assertIsNotNone(self.a1.closed_date)
+        self.assertIsNone(self.a1.approved_at)   # sigue pendiente de aprobación
+        self.assertTrue(TicketEvent.objects.filter(
+            ticket=self.ticket, detail__icontains='concluyó el subticket de').exists())
+
+    def test_group_must_belong_to_one_ticket(self):
+        other = Ticket.objects.create(title='Otro', reporter=self.coord, has_subproducts=True)
+        b1 = Assignment.objects.create(ticket=other, user=self.dev1, kind=Assignment.Kind.EJECUTOR)
+        r = self._move(self.coord, {'assignments': [self.a1.pk, b1.pk], 'status': 'IN_PROGRESS'})
+        self.assertEqual(r.status_code, 400)
+
+    def test_executor_cannot_move_group_with_foreign_assignment(self):
+        r = self._move(self.dev1, {'assignments': [self.a1.pk, self.a2.pk], 'status': 'IN_PROGRESS'})
+        self.assertEqual(r.status_code, 403)
+        self.a2.refresh_from_db()
+        self.assertEqual(self.a2.status, 'TODO')
+
+    def test_unknown_assignment_is_404(self):
+        r = self._move(self.coord, {'assignment': 999999, 'status': 'IN_PROGRESS'})
+        self.assertEqual(r.status_code, 404)
 
 
 @override_settings(**OV)

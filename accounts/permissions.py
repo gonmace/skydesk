@@ -27,7 +27,12 @@ CAPABILITIES = [
     # /acceso/roles/ prometía algo sin efecto. Las filas viejas en DB se ignoran.
     ('tickets.unarchive', 'Desarchivar tickets'),
     ('tickets.view_waiting', 'Ver la columna Suspendido/Cancelado del tablero'),
+    ('tickets.view_backlog', 'Ver la columna Entrada del tablero'),
     ('tickets.board_by_ticket', 'Ver el tablero por ticket completo (no por subticket propio)'),
+    # Abre la página Cuentas (invitar, activar/desactivar, roles, dominios). Quien la
+    # tiene sin ser superuser NO ve superusers ni nada del rol Administrador (ni las
+    # páginas Roles/Nextcloud/Correo, que siguen siendo superuser-only).
+    ('accounts.manage', 'Gestionar cuentas (invitar, activar, roles)'),
 ]
 
 CAPABILITY_KEYS = [key for key, _ in CAPABILITIES]
@@ -44,6 +49,12 @@ DEFAULT_ROLE_CAPS = {
     Role.SEGUIMIENTO: {
         'tickets.view_all', 'chat.view_all', 'dashboard.view',
         'tickets.view_waiting', 'tickets.board_by_ticket',
+    },
+    # Espía solo-lectura: como Seguimiento pero además ve «Entrada» (view_backlog,
+    # que antes iba implícita en tickets.assign). Nada de escritura/participación.
+    Role.ADMINISTRADOR: {
+        'tickets.view_all', 'chat.view_all', 'dashboard.view',
+        'tickets.view_waiting', 'tickets.view_backlog', 'tickets.board_by_ticket',
     },
 }
 

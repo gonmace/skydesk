@@ -8,7 +8,7 @@
     {% if creating %}Nuevo ticket{% else %}Editar <span class="font-mono text-accent">{{ ticket.key }}</span>{% endif %}
   </h1>
 
-  <form method="post" class="space-y-5">
+  <form method="post" class="space-y-5" data-submit-spinner>
     {% csrf_token %}
     {% if form.non_field_errors %}
       <div class="alert alert-error text-sm py-2"><span>{{ form.non_field_errors.0 }}</span></div>

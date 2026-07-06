@@ -178,15 +178,17 @@ def _notify_new_comment(request, ticket, comment):
 def _visible_statuses(user):
     """Columnas del tablero para `user`.
 
-    - "Entrada" (BACKLOG): solo quien puede asignar (Coordinador) — es la bandeja de
-      tickets sin ejecutor, no aporta a Ejecutor/Experto/Seguimiento.
-    - "Suspendido/Cancelado" (WAITING): solo Coordinador y Seguimiento
+    - "Entrada" (BACKLOG): quien tenga `tickets.view_backlog` (Coordinador, y
+      Administrador en solo-lectura) — es la bandeja de tickets sin ejecutor, no
+      aporta a Ejecutor/Experto/Seguimiento. Antes iba implícita en `tickets.assign`;
+      se separó para que el Administrador (espía) la vea sin poder asignar.
+    - "Suspendido/Cancelado" (WAITING): solo Coordinador, Seguimiento y Administrador
       (`tickets.view_waiting`) — a Experto y Ejecutor no les aporta y para el Ejecutor
       además nunca fue la forma de suspender un ticket completo (eso es solo del
       Coordinador vía `ticket_suspend`).
     """
     hidden = set()
-    if not has_capability(user, 'tickets.assign'):
+    if not has_capability(user, 'tickets.view_backlog'):
         hidden.add(Ticket.Status.BACKLOG)
     if not has_capability(user, 'tickets.view_waiting'):
         hidden.add(Ticket.Status.WAITING)
@@ -199,13 +201,15 @@ def _status_visibility_legend():
     pero a nivel de rol (política general vía `RolePermission`), no del usuario logueado.
     `statuses` son las 5 columnas en orden fijo; cada `row` marca su tramo visible con
     índices `start`/`end` sobre esa lista, para dibujar el corchete horizontal."""
-    can_assign = roles_with_capability('tickets.assign')
+    can_view_backlog = roles_with_capability('tickets.view_backlog')
     can_view_waiting = roles_with_capability('tickets.view_waiting')
     statuses = list(Ticket.Status.choices)
     groups = {}
     for role in Role:
+        if role == Role.ADMINISTRADOR:
+            continue   # espía solo-lectura: no figura ante los demás roles
         hidden = set()
-        if role not in can_assign:
+        if role not in can_view_backlog:
             hidden.add(Ticket.Status.BACKLOG)
         if role not in can_view_waiting:
             hidden.add(Ticket.Status.WAITING)
@@ -232,7 +236,7 @@ def _base_ticket_number(ticket):
     return ticket.pk
 
 
-def _subticket_cards(visible, statuses, *, viewer):
+def _subticket_cards(visible, statuses, *, viewer, movable=False):
     """Agrupa Assignments (`visible`) en columnas por `status`, fusionando 2+ subtickets
     del mismo ticket que caen en la misma columna en una sola card — evita mostrar "mi
     card" + fantasma casi idénticas una al lado de la otra cuando ya están alineadas; se
@@ -240,14 +244,16 @@ def _subticket_cards(visible, statuses, *, viewer):
 
     `viewer` = el ejecutor logueado (tablero del ejecutor): marca `is_ghost` en los
     subtickets ajenos y `my_assignment` es el propio dentro del grupo fusionado.
-    `viewer=None` = vista de solo lectura (tablero del coordinador, ve TODOS los
-    subtickets sin fantasmas): `is_readonly=True`, sin "mi" asignación — pero si el
-    caller marcó `a.is_muted` de antemano (ver `_parent_columns`), esa atenuación por
-    ticket sí se respeta y se propaga al entry `merged`.
+    `viewer=None` = vista de subtickets ajenos (tablero del coordinador, ve TODOS los
+    subtickets sin fantasmas): `others_view=True` (badge del dueño + atenuado por
+    `is_muted` si el caller lo marcó, ver `_parent_columns`). Con `movable=True`
+    (coordinador con tickets.move) esas cards además se arrastran — la merged mueve
+    el grupo entero vía data-assignment-ids; sin `movable` quedan `is_readonly`
+    (experto/seguimiento).
 
     Devuelve {status_value: [entries]}; cada entry es {'type': 'subticket', 'a': a} o
     {'type': 'merged', 'ticket', 'group', 'link_color', 'is_locked', 'my_assignment',
-    'is_readonly', 'is_muted'}."""
+    'is_readonly', 'others_view', 'is_muted'}."""
     for a in visible:
         a.is_ghost = viewer is not None and a.user_id != viewer.id
     # Mismo color (punto con ping) para todas las cards del mismo ticket, pero solo
@@ -282,7 +288,9 @@ def _subticket_cards(visible, statuses, *, viewer):
                 entries.append({
                     'type': 'merged', 'ticket': a.ticket, 'group': group,
                     'link_color': a.link_color, 'is_locked': a.is_locked,
-                    'my_assignment': mine, 'is_readonly': viewer is None,
+                    'my_assignment': mine,
+                    'others_view': viewer is None,
+                    'is_readonly': viewer is None and not movable,
                     'is_muted': getattr(a, 'is_muted', False),
                     'pending_approval': any(
                         x.status == Ticket.Status.DONE and not x.approved_at for x in group),
@@ -292,7 +300,8 @@ def _subticket_cards(visible, statuses, *, viewer):
                         getattr(x, 'viewer_is_executor', False) for x in group),
                 })
             else:
-                a.is_readonly = viewer is None
+                a.others_view = viewer is None
+                a.is_readonly = viewer is None and not movable
                 entries.append({'type': 'subticket', 'a': a})
         by_status[value] = entries
     return by_status
@@ -357,7 +366,11 @@ def _parent_columns(request):
         t.viewer_is_executor = viewer_is_exec
         ticket_entries.append(t)
     statuses = _visible_statuses(user)
-    subticket_by_status = _subticket_cards(subproduct_assignments, statuses, viewer=None)
+    # movable: el coordinador (tickets.move) también arrastra los subtickets ajenos;
+    # experto/seguimiento no (y su tablero además tiene data-can-move="0").
+    subticket_by_status = _subticket_cards(
+        subproduct_assignments, statuses, viewer=None,
+        movable=has_capability(user, 'tickets.move'))
     columns = []
     for value, label in statuses:
         col = [t for t in ticket_entries if t.display_status == value]
@@ -526,8 +539,14 @@ def _conclude_assignments(request, a, actor, conclusion=''):
         if not ea.started_at:
             ea.started_at = ea.created
         ea.save()
-    _log(a.ticket, actor, 'conclude',
-         'concluyó su subticket' if a.ticket.has_subproducts else 'concluyó la tarea', assignment=a)
+    if not a.ticket.has_subproducts:
+        detail = 'concluyó la tarea'
+    elif actor.pk == a.user_id:
+        detail = 'concluyó su subticket'
+    else:
+        # El coordinador arrastró a Concluido el subticket de un ejecutor.
+        detail = f'concluyó el subticket de {_user_display(a.user)}'
+    _log(a.ticket, actor, 'conclude', detail, assignment=a)
     a.ticket.recompute_status()
     # Notifica al reporter Y a quienes pueden aprobar (tickets.close): si el reporter es
     # el propio ejecutor (o está de baja), antes ningún coordinador se enteraba de que
@@ -551,12 +570,20 @@ def _conclude_assignments(request, a, actor, conclusion=''):
 @require_POST
 @require_capability('tickets.move')
 def assignment_move(request):
-    """El ejecutor mueve SU subticket entre Por hacer / En progreso / Esperando / Concluido."""
+    """El ejecutor mueve SU subticket entre Por hacer / En progreso / Esperando /
+    Concluido. Quien puede asignar (coordinador) también mueve subtickets ajenos —
+    incluida la card fusionada, que manda `assignments` (lista) para mover el grupo
+    entero de una."""
     try:
         payload = json.loads(request.body)
-        aid = payload['assignment']
         status = payload['status']
-    except (ValueError, KeyError):
+        raw = payload.get('assignments')
+        if raw is None:
+            raw = [payload['assignment']]
+        if not isinstance(raw, list) or not raw:
+            return HttpResponseBadRequest('payload inválido')
+        ids = [int(i) for i in raw]
+    except (ValueError, KeyError, TypeError):
         return HttpResponseBadRequest('payload inválido')
     if status not in _DRAG_STATUSES:
         return HttpResponseBadRequest('estado no permitido')
@@ -566,29 +593,44 @@ def assignment_move(request):
         # puede ver ni revertir — quedaba dependiendo del coordinador sin saberlo.
         return HttpResponseBadRequest('estado no permitido')
     with transaction.atomic():
-        a = get_object_or_404(Assignment, pk=aid, user=request.user, kind=Assignment.Kind.EJECUTOR)
-        a.ticket = _lock_ticket(a.ticket_id)
-        a.refresh_from_db()   # re-lee el estado ya bajo el lock (pudo cambiar en la espera)
-        if a.ticket.suspended_at:
-            return HttpResponseBadRequest('el ticket está suspendido por el coordinador')
-        if a.status != status:
+        moves = list(Assignment.objects.filter(
+            pk__in=set(ids), kind=Assignment.Kind.EJECUTOR).select_related('ticket', 'user'))
+        if len(moves) != len(set(ids)):
+            raise Http404
+        if len({a.ticket_id for a in moves}) != 1:
+            # La card fusionada agrupa subtickets de UN ticket; una lista mixta no
+            # corresponde a ningún drag legítimo.
+            return HttpResponseBadRequest('los subtickets deben ser del mismo ticket')
+        if any(a.user_id != request.user.pk for a in moves) \
+                and not has_capability(request.user, 'tickets.assign'):
+            raise PermissionDenied
+        ticket = _lock_ticket(moves[0].ticket_id)
+        for a in moves:
+            a.ticket = ticket
+            a.refresh_from_db()   # re-lee el estado ya bajo el lock (pudo cambiar en la espera)
+            if ticket.suspended_at:
+                return HttpResponseBadRequest('el ticket está suspendido por el coordinador')
+            if a.status == status:
+                continue
             if status == Ticket.Status.DONE:
                 _conclude_assignments(request, a, request.user)
             else:
                 now = timezone.now()
-                if a.ticket.has_subproducts:
+                if ticket.has_subproducts:
                     a.advance_to(status, now)
                     a.save()
-                    _log(a.ticket, request.user, 'status',
-                         f'movió su subticket a «{a.get_status_display()}»', assignment=a)
+                    detail = f'movió su subticket a «{a.get_status_display()}»' \
+                        if a.user_id == request.user.pk \
+                        else f'movió el subticket de {_user_display(a.user)} a «{a.get_status_display()}»'
+                    _log(ticket, request.user, 'status', detail, assignment=a)
                 else:
                     # Colaborativa: el estado es compartido → sincroniza a todos los ejecutores.
-                    for ea in a.ticket.executor_assignments:
+                    for ea in ticket.executor_assignments:
                         ea.advance_to(status, now)
                         ea.save()
-                    _log(a.ticket, request.user, 'status', f'movió la tarea a «{a.ticket.Status(status).label}»')
-                a.ticket.recompute_status()
-    return JsonResponse({'ok': True, 'parent_status': a.ticket.status})
+                    _log(ticket, request.user, 'status', f'movió la tarea a «{Ticket.Status(status).label}»')
+        ticket.recompute_status()
+    return JsonResponse({'ok': True, 'parent_status': ticket.status})
 
 
 @login_required

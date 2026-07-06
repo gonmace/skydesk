@@ -159,6 +159,99 @@ class NextcloudConfigViewTests(TestCase):
 
 
 @override_settings(**OV)
+class AccessAdminCoordinatorTests(TestCase):
+    """La página Cuentas se abre a quien tenga accounts.manage (coordinador por
+    defecto), pero sin ver superusers ni nada del rol ADMINISTRADOR."""
+
+    def _make(self, email, role):
+        u = User.objects.create_user(email, email, 'ClaveReal123', is_active=True)
+        Profile.objects.update_or_create(user=u, defaults={'role': role})
+        return u
+
+    def setUp(self):
+        self.coord = self._make('coord@empresa.com', Role.COORDINADOR)
+        self.ejec = self._make('ej@empresa.com', Role.EJECUTOR)
+        self.admin_role = self._make('espia@empresa.com', Role.ADMINISTRADOR)
+        self.superuser = User.objects.create_superuser('root@empresa.com', 'root@empresa.com', 'ClaveReal123')
+
+    def test_coordinator_can_open_accounts_page(self):
+        self.client.force_login(self.coord)
+        r = self.client.get(reverse('accounts:access_admin'))
+        self.assertEqual(r.status_code, 200)
+
+    def test_ejecutor_forbidden(self):
+        self.client.force_login(self.ejec)
+        self.assertEqual(self.client.get(reverse('accounts:access_admin')).status_code, 403)
+
+    def test_coordinator_does_not_see_superusers_nor_administrador(self):
+        self.client.force_login(self.coord)
+        content = self.client.get(reverse('accounts:access_admin')).content.decode()
+        self.assertNotIn('root@empresa.com', content)
+        self.assertNotIn('espia@empresa.com', content)
+        # Tampoco se ofrece el rol Administrador en ningún select.
+        self.assertNotIn('value="ADMINISTRADOR"', content)
+        self.assertIn('ej@empresa.com', content)
+
+    def test_superuser_still_sees_everything(self):
+        self.client.force_login(self.superuser)
+        content = self.client.get(reverse('accounts:access_admin')).content.decode()
+        self.assertIn('espia@empresa.com', content)
+        self.assertIn('value="ADMINISTRADOR"', content)
+
+    def test_coordinator_cannot_touch_hidden_targets(self):
+        self.client.force_login(self.coord)
+        for target in (self.superuser, self.admin_role):
+            r = self.client.post(reverse('accounts:access_admin'),
+                                 {'action': 'toggle_user', 'id': target.pk})
+            self.assertEqual(r.status_code, 403)
+            r = self.client.post(reverse('accounts:access_admin'),
+                                 {'action': 'delete_user', 'id': target.pk})
+            self.assertEqual(r.status_code, 403)
+            self.assertEqual(self.client.get(reverse('accounts:user_edit', args=[target.pk])).status_code, 403)
+
+    def test_coordinator_can_manage_normal_user(self):
+        self.client.force_login(self.coord)
+        r = self.client.post(reverse('accounts:access_admin'),
+                             {'action': 'toggle_user', 'id': self.ejec.pk})
+        self.assertEqual(r.status_code, 302)
+        self.ejec.refresh_from_db()
+        self.assertFalse(self.ejec.is_active)
+
+    def test_coordinator_cannot_invite_administrador(self):
+        self.client.force_login(self.coord)
+        self.client.post(reverse('accounts:access_admin'), {
+            'action': 'invite', 'email': 'nuevo@empresa.com', 'role': Role.ADMINISTRADOR,
+        })
+        self.assertFalse(AllowedEmail.objects.filter(email='nuevo@empresa.com').exists())
+
+    def test_coordinator_cannot_assign_administrador_role(self):
+        self.client.force_login(self.coord)
+        r = self.client.post(reverse('accounts:user_edit', args=[self.ejec.pk]), {
+            'action': 'save_account', 'first_name': 'E', 'last_name': 'J',
+            'role': Role.ADMINISTRADOR,
+        })
+        self.assertEqual(r.status_code, 200)   # form inválido: re-render con error
+        self.ejec.refresh_from_db()
+        self.assertEqual(self.ejec.profile.role, Role.EJECUTOR)
+
+    def test_coordinator_cannot_edit_permission_overrides(self):
+        other = self._make('coord2@empresa.com', Role.COORDINADOR)
+        self.client.force_login(self.coord)
+        r = self.client.post(reverse('accounts:user_edit', args=[other.pk]),
+                             {'action': 'save_permissions', 'tickets.move': 'on'})
+        self.assertEqual(r.status_code, 403)
+        self.assertFalse(UserPermission.objects.filter(user=other).exists())
+        # Y la sección de overrides no se le muestra.
+        content = self.client.get(reverse('accounts:user_edit', args=[other.pk])).content.decode()
+        self.assertNotIn('Configuración específica de esta cuenta', content)
+
+    def test_roles_and_config_pages_remain_superuser_only(self):
+        self.client.force_login(self.coord)
+        for name in ('accounts:roles_board', 'accounts:nextcloud_config', 'accounts:email_config'):
+            self.assertEqual(self.client.get(reverse(name)).status_code, 403, name)
+
+
+@override_settings(**OV)
 class EmailConfigViewTests(TestCase):
     """Solo el superuser puede ver/editar la config de correo (accounts:email_config)."""
 

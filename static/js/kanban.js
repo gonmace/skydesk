@@ -1,6 +1,7 @@
 // Drag & drop del tablero kanban. Requiere sortable.min.js cargado antes.
 // CSP-safe: sin inline; token CSRF de <meta name="csrf-token">.
-// Dos modos: 'ticket' (coordinador, no arrastrable) y 'subticket' (ejecutor mueve su subticket).
+// Dos modos: 'ticket' (coordinador: mueve tickets y también los subtickets ajenos de
+// los multiproducto) y 'subticket' (ejecutor mueve su subticket).
 // Expone window.initKanban() para re-inicializar tras recargar el fragmento por AJAX.
 (function () {
   'use strict';
@@ -21,24 +22,35 @@
     });
   }
 
+  // Cards de subticket (multiproducto): llevan data-assignment-id (una sola) o
+  // data-assignment-ids (fusionada del coordinador: el grupo entero).
+  function isAssignmentCard(el) {
+    return el.hasAttribute('data-assignment-id') || el.hasAttribute('data-assignment-ids');
+  }
+
   function persistTicketOrder(board, column) {
-    // .is-readonly = subtickets de un ticket con subproductos mostrados en el tablero
-    // del coordinador (ver _subticket_cards en views.py): no tienen posición propia de
-    // ticket, así que no deben entrar en el order que recibe ticket_move.
-    var order = Array.prototype.map.call(
-      column.querySelectorAll('.ticket-card:not(.is-readonly)'),
-      function (el) { return parseInt(el.getAttribute('data-ticket-id'), 10); }
-    );
+    // Los subtickets de un ticket multiproducto (tablero del coordinador) no tienen
+    // posición propia de ticket y su data-ticket-id es el del PADRE: si entraran al
+    // order, ticket_move movería el ticket entero. Van por persistAssignment.
+    var order = [];
+    Array.prototype.forEach.call(column.querySelectorAll('.ticket-card:not(.is-readonly)'), function (el) {
+      if (!isAssignmentCard(el)) order.push(parseInt(el.getAttribute('data-ticket-id'), 10));
+    });
     post(board.getAttribute('data-move-url'), {
       status: column.getAttribute('data-status'), order: order
     }).catch(function () { window.location.reload(); });
   }
 
   function persistAssignment(board, item, toColumn) {
-    post(board.getAttribute('data-assignment-move-url'), {
-      assignment: parseInt(item.getAttribute('data-assignment-id'), 10),
-      status: toColumn.getAttribute('data-status')
-    }).then(function (r) {
+    var body = { status: toColumn.getAttribute('data-status') };
+    var groupIds = item.getAttribute('data-assignment-ids');
+    if (groupIds) {
+      // Merged del coordinador: mueve todos los subtickets del grupo de una.
+      body.assignments = groupIds.split(',').map(function (s) { return parseInt(s, 10); });
+    } else {
+      body.assignment = parseInt(item.getAttribute('data-assignment-id'), 10);
+    }
+    post(board.getAttribute('data-assignment-move-url'), body).then(function (r) {
       if (!r.ok) { window.location.reload(); return; }
       // El servidor puede fusionar/separar cards multiproducto (mismo ticket, mismo
       // estado) — SortableJS solo movió el nodo que arrastramos, así que hace falta
@@ -68,13 +80,16 @@
         delayOnTouchOnly: true,
         touchStartThreshold: 5,
         onMove: function (evt) {
-          if (mode === 'subticket') {
+          // Un subticket nunca puede caer en «Entrada» (ni en columnas ocultas):
+          // aplica al tablero del ejecutor y a las cards de subticket que el
+          // coordinador arrastra dentro del suyo.
+          if (mode === 'subticket' || isAssignmentCard(evt.dragged)) {
             return !!ALLOWED[evt.to.getAttribute('data-status')];
           }
           return true;
         },
         onEnd: function (evt) {
-          if (mode === 'subticket') {
+          if (mode === 'subticket' || isAssignmentCard(evt.item)) {
             persistAssignment(board, evt.item, evt.to);
           } else {
             persistTicketOrder(board, evt.to);

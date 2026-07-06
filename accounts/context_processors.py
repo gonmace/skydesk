@@ -21,6 +21,8 @@ def nav_flags(request):
         'nav_can_create': has_capability(user, 'tickets.create'),
         'nav_can_labels': has_capability(user, 'tickets.edit_any'),
         'nav_can_projects': has_capability(user, 'projects.manage'),
+        # Cuentas: superuser (has_capability lo bypasea) o coordinador con accounts.manage.
+        'nav_can_accounts': has_capability(user, 'accounts.manage'),
         'nav_is_superuser': user.is_superuser,
         'nav_role': role or '',
         'nav_role_label': dict(Role.choices).get(role, ''),

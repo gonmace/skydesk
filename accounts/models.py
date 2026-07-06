@@ -7,9 +7,15 @@ class Role(models.TextChoices):
     EXPERTO = 'EXPERTO', 'Experto'
     EJECUTOR = 'EJECUTOR', 'Ejecutor'
     SEGUIMIENTO = 'SEGUIMIENTO', 'Seguimiento'
+    # Espía solo-lectura: ve TODO (incluida la columna Entrada) pero no participa —
+    # no es asignable, no escribe, no recibe notificaciones y no figura ante los
+    # demás roles (se omite de la leyenda «?» del tablero; solo el superuser lo ve
+    # en Cuentas/Roles).
+    ADMINISTRADOR = 'ADMINISTRADOR', 'Administrador'
 
 
 # Letra RACI por rol (A=Accountable, R=Responsible, C=Consulted, I=Informed).
+# ADMINISTRADOR no tiene letra a propósito: es un observador fuera de la matriz RACI.
 RACI_LETTER = {
     'COORDINADOR': 'A',
     'EJECUTOR': 'R',

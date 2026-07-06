@@ -11,6 +11,23 @@ _SELECT = 'select select-bordered w-full'
 _CHECKBOX = 'checkbox checkbox-primary'
 
 
+def role_choices_for(viewer):
+    """Roles que `viewer` puede ver/asignar en la gestión de cuentas: el rol
+    ADMINISTRADOR (espía solo-lectura) solo existe para el superuser — un coordinador
+    con accounts.manage no debe verlo ni poder asignarlo."""
+    if viewer is not None and viewer.is_superuser:
+        return list(Role.choices)
+    return [c for c in Role.choices if c[0] != Role.ADMINISTRADOR]
+
+
+def _restrict_role_field(field, viewer):
+    """Filtra ADMINISTRADOR de las choices de `field` (conserva la opción en blanco de
+    los ModelForm) cuando el viewer no es superuser — vale también server-side: un POST
+    con ese rol no pasa la validación del form."""
+    allowed = {v for v, _ in role_choices_for(viewer)}
+    field.choices = [c for c in field.choices if c[0] in allowed or not c[0]]
+
+
 class RequestAccessForm(forms.Form):
     email = forms.EmailField(
         label='Correo electrónico',
@@ -86,7 +103,8 @@ class ProfileNameForm(forms.ModelForm):
 
 
 class AdminUserEditForm(forms.ModelForm):
-    """El superuser edita nombre, apellido y rol de un usuario."""
+    """El superuser (o un coordinador con accounts.manage) edita nombre, apellido y
+    rol de un usuario — para no-superusers el rol ADMINISTRADOR no se ofrece ni valida."""
     role = forms.ChoiceField(label='Rol', choices=Role.choices,
                              widget=forms.Select(attrs={'class': _SELECT}))
 
@@ -99,8 +117,9 @@ class AdminUserEditForm(forms.ModelForm):
             'last_name': forms.TextInput(attrs={'class': _INPUT, 'placeholder': 'Apellido'}),
         }
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, viewer=None, **kwargs):
         super().__init__(*args, **kwargs)
+        _restrict_role_field(self.fields['role'], viewer)
         if self.instance and self.instance.pk:
             prof = getattr(self.instance, 'profile', None)
             self.fields['role'].initial = prof.role if prof else Role.EJECUTOR
@@ -124,6 +143,10 @@ class InviteForm(forms.Form):
         widget=forms.Select(attrs={'class': _SELECT}),
     )
 
+    def __init__(self, *args, viewer=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        _restrict_role_field(self.fields['role'], viewer)
+
     def clean_email(self):
         return self.cleaned_data['email'].strip().lower()
 
@@ -137,6 +160,10 @@ class AllowedDomainForm(forms.ModelForm):
             'default_role': forms.Select(attrs={'class': _SELECT}),
             'note': forms.TextInput(attrs={'class': _INPUT, 'placeholder': 'Nota (opcional)'}),
         }
+
+    def __init__(self, *args, viewer=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        _restrict_role_field(self.fields['default_role'], viewer)
 
 
 class NextcloudOAuthConfigForm(forms.ModelForm):
@@ -217,3 +244,7 @@ class AllowedEmailForm(forms.ModelForm):
             'default_role': forms.Select(attrs={'class': _SELECT}),
             'note': forms.TextInput(attrs={'class': _INPUT, 'placeholder': 'Nota (opcional)'}),
         }
+
+    def __init__(self, *args, viewer=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        _restrict_role_field(self.fields['default_role'], viewer)

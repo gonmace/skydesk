@@ -21,6 +21,9 @@
 
     {% load static tailwind_tags %}
     <link rel="icon" type="image/svg+xml" href="{% static 'img/favicon.svg' %}">
+    {# Bloqueante a propósito (sin defer): aplica el tema guardado antes del primer #}
+    {# paint — con defer habría un flash del tema claro en cada carga. #}
+    <script src="{% static 'js/theme-init.js' %}"></script>
     {% tailwind_css %}
     {% block extra_head %}{% endblock %}
 </head>

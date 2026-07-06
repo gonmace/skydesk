@@ -1,3 +1,5 @@
-{# Mensajes nuevos para appendear al final del chat (comments_since): a diferencia de
-   _chat_history_fragment.html, el último del lote ES el último real del hilo. #}
+{% comment %}
+  Mensajes nuevos para appendear al final del chat (comments_since): a diferencia de
+  _chat_history_fragment.html, el último del lote ES el último real del hilo.
+{% endcomment %}
 {% for c in comments %}{% include 'tickets/partials/chat_message.html' with is_last_comment=forloop.last %}{% endfor %}

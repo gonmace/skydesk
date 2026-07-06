@@ -1,5 +1,10 @@
 {% for col in columns %}
-  <div class="shrink-0 w-[85vw] sm:w-72 lg:w-auto lg:flex-1 lg:min-w-0 snap-start">
+  {% comment %}
+    flex flex-col + flex-1 en .kanban-col: la zona droppable ocupa toda la altura de
+    la columna (el row padre estira las celdas a la más alta) — se puede soltar una
+    card en cualquier punto vacío de la columna, no solo pegado a otra card.
+  {% endcomment %}
+  <div class="shrink-0 w-[85vw] sm:w-72 lg:w-auto lg:flex-1 lg:min-w-0 snap-start flex flex-col">
     <div class="flex items-center justify-between mb-2 px-1">
       <div class="flex items-center gap-2">
         <span class="w-2 h-2 rounded-full
@@ -8,10 +13,10 @@
       </div>
       <span class="badge badge-ghost badge-sm">{{ col.count }}</span>
     </div>
-    <div class="kanban-col space-y-3 min-h-16 rounded-2xl p-1" data-status="{{ col.value }}">
+    <div class="kanban-col space-y-3 min-h-16 flex-1 rounded-2xl p-1" data-status="{{ col.value }}">
       {% for item in col.items %}
         {% if item.type == 'merged' %}
-          {% include 'tickets/partials/_subticket_merged_card.html' with ticket=item.ticket group=item.group link_color=item.link_color is_locked=item.is_locked my_assignment=item.my_assignment is_readonly=item.is_readonly is_muted=item.is_muted pending_approval=item.pending_approval viewer_is_executor=item.viewer_is_executor %}
+          {% include 'tickets/partials/_subticket_merged_card.html' with ticket=item.ticket group=item.group link_color=item.link_color is_locked=item.is_locked my_assignment=item.my_assignment is_readonly=item.is_readonly others_view=item.others_view is_muted=item.is_muted pending_approval=item.pending_approval viewer_is_executor=item.viewer_is_executor %}
         {% elif item.type == 'subticket' %}
           {% include 'tickets/partials/_subticket_card.html' with a=item.a %}
         {% else %}
