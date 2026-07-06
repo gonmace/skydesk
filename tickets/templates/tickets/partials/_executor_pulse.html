@@ -1,0 +1,9 @@
+{% comment %}
+  Punto con ping arriba a la derecha de la card: el usuario logueado (coordinador)
+  es ejecutor de este ticket — se auto-asignó la tarea (ver _parent_columns y
+  my_tickets en views.py, que setean viewer_is_executor).
+{% endcomment %}
+<span class="relative flex h-2 w-2 shrink-0" title="Sos ejecutor de este ticket">
+  <span class="absolute inline-flex h-full w-full rounded-full bg-warning opacity-75 animate-ping"></span>
+  <span class="relative inline-flex h-2 w-2 rounded-full bg-warning"></span>
+</span>

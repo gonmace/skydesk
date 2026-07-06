@@ -280,6 +280,10 @@ def _subticket_cards(visible, statuses, *, viewer):
                     'is_muted': getattr(a, 'is_muted', False),
                     'pending_approval': any(
                         x.status == Ticket.Status.DONE and not x.approved_at for x in group),
+                    # Ping "soy ejecutor" del coordinador (ver _parent_columns): si su
+                    # subticket cayó dentro del grupo fusionado, la card fusionada lo hereda.
+                    'viewer_is_executor': any(
+                        getattr(x, 'viewer_is_executor', False) for x in group),
                 })
             else:
                 a.is_readonly = viewer is None
@@ -310,6 +314,10 @@ def _parent_columns(request):
     subproduct_assignments = []
     for t in tickets:
         ejec = [a for a in t.assignments.all() if a.kind == Assignment.Kind.EJECUTOR]
+        # Coordinador auto-asignado como ejecutor: punto con ping arriba a la derecha
+        # de la card para que distinga en cuáles ejecuta él mismo (solo tiene sentido
+        # para quien ve el tablero completo; el ejecutor puro ya solo ve los suyos).
+        viewer_is_exec = highlight_own and any(a.user_id == user.id for a in ejec)
         if t.has_subproducts and ejec:
             # is_muted a nivel ticket (no por assignment individual): el coordinador ve
             # todos los subtickets sin fantasmas, pero sí atenuados salvo que él mismo sea
@@ -320,6 +328,7 @@ def _parent_columns(request):
                 a.ticket = t   # evita relanzar la query (t.assignments ya viene prefetched)
                 a.is_locked = bool(t.suspended_at)
                 a.is_muted = t_is_muted
+                a.viewer_is_executor = highlight_own and a.user_id == user.id
                 subproduct_assignments.append(a)
             continue
         # Todos los ejecutores concluyeron pero falta la aprobación del coordinador:
@@ -339,6 +348,7 @@ def _parent_columns(request):
         )
         if highlight_own:
             t.is_muted = not (t.reporter_id == user.id or is_participant)
+        t.viewer_is_executor = viewer_is_exec
         ticket_entries.append(t)
     statuses = _visible_statuses(user)
     subticket_by_status = _subticket_cards(subproduct_assignments, statuses, viewer=None)
@@ -1173,7 +1183,7 @@ def _sync_assignments(ticket, executor_users, expert_users, status=Ticket.Status
 def ticket_create(request):
     can_assign = has_capability(request.user, 'tickets.assign')
     if request.method == 'POST':
-        form = TicketForm(request.POST, can_assign=can_assign)
+        form = TicketForm(request.POST, can_assign=can_assign, user=request.user)
         if form.is_valid():
             ticket = form.save(commit=False)
             ticket.reporter = request.user
@@ -1190,7 +1200,7 @@ def ticket_create(request):
             messages.success(request, f'{ticket.key} creado.')
             return redirect('tickets:detail', pk=ticket.pk)
     else:
-        form = TicketForm(can_assign=can_assign)
+        form = TicketForm(can_assign=can_assign, user=request.user)
     return render(request, 'tickets/ticket_form.html', {
         'form': form, 'creating': True,
         'can_manage_labels': has_capability(request.user, 'tickets.edit_any'),
@@ -1206,7 +1216,7 @@ def ticket_edit(request, pk):
     can_assign = has_capability(request.user, 'tickets.assign')
     old = {'priority': ticket.priority, 'due_date': ticket.due_date, 'status': ticket.status}
     if request.method == 'POST':
-        form = TicketForm(request.POST, instance=ticket, can_assign=can_assign)
+        form = TicketForm(request.POST, instance=ticket, can_assign=can_assign, user=request.user)
         if form.is_valid():
             with transaction.atomic():
                 _lock_ticket(ticket.pk)
@@ -1238,7 +1248,7 @@ def ticket_edit(request, pk):
             messages.success(request, f'{ticket.key} actualizado.')
             return redirect('tickets:detail', pk=ticket.pk)
     else:
-        form = TicketForm(instance=ticket, can_assign=can_assign)
+        form = TicketForm(instance=ticket, can_assign=can_assign, user=request.user)
     return render(request, 'tickets/ticket_form.html', {
         'form': form, 'creating': False, 'ticket': ticket,
         'can_manage_labels': has_capability(request.user, 'tickets.edit_any'),
@@ -1470,6 +1480,9 @@ def my_tickets(request):
     # ejecutores concluyan y el coordinador apruebe (models.py:212-236), aunque este
     # usuario ya haya terminado su parte — mismo criterio que _executor_columns.
     now = timezone.now()
+    # Ping "soy ejecutor": solo para el coordinador (mismo criterio que _parent_columns);
+    # al ejecutor puro no le aporta nada — todo lo suyo acá es como ejecutor.
+    viewer_is_coord = has_capability(request.user, 'tickets.assign')
     for t in page_obj:
         mine = next((a for a in t.assignments.all() if a.user_id == request.user.id), None)
         t.display_status = mine.status if mine else t.status
@@ -1477,6 +1490,9 @@ def my_tickets(request):
         t.pending_approval = bool(mine) and mine.status == Ticket.Status.DONE \
             and t.status != Ticket.Status.DONE
         t.my_in_progress = _fmt_delta(mine.time_in(Ticket.Status.IN_PROGRESS, now)) if mine else None
+        t.viewer_is_executor = viewer_is_coord and any(
+            a.user_id == request.user.id and a.kind == Assignment.Kind.EJECUTOR
+            for a in t.assignments.all())
     return render(request, 'tickets/my_tickets.html', {
         'page_obj': page_obj, 'sort': sort,
     })

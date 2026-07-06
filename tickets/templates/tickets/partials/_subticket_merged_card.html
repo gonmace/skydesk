@@ -15,6 +15,7 @@
     <span class="flex items-center gap-1">
       {% if is_locked %}<span class="badge badge-ghost badge-xs" title="Solo el coordinador puede reactivarlo">Suspendido</span>{% endif %}
       {% include 'tickets/partials/_ticket_status_icons.html' with t=ticket %}
+      {% if viewer_is_executor %}{% include 'tickets/partials/_executor_pulse.html' %}{% endif %}
     </span>
   </div>
 

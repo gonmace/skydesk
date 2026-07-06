@@ -26,6 +26,7 @@
           </button>
         </form>
       {% endif %}
+      {% if t.viewer_is_executor %}{% include 'tickets/partials/_executor_pulse.html' %}{% endif %}
     </span>
   </div>
 

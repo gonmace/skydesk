@@ -46,7 +46,7 @@ class TicketForm(forms.ModelForm):
             'has_subproducts': forms.CheckboxInput(attrs={'class': 'toggle toggle-primary'}),
         }
 
-    def __init__(self, *args, can_assign=True, **kwargs):
+    def __init__(self, *args, can_assign=True, user=None, **kwargs):
         super().__init__(*args, **kwargs)
         from django.db.models import Q
 
@@ -59,8 +59,17 @@ class TicketForm(forms.ModelForm):
         if self.instance and self.instance.pk:
             assigned_exec_ids = [a.user_id for a in self.instance.executor_assignments]
             assigned_expert_ids = [a.user_id for a in self.instance.expert_assignments]
+        # Coordinadores también elegibles como ejecutores (su card lleva un punto con
+        # ping en el tablero/Mis tickets, ver _parent_columns) — pero nunca uno mismo:
+        # `user` (quien edita) queda fuera del queryset, así que elegirse a sí mismo
+        # tampoco pasa la validación del POST. Si OTRO coordinador ya lo asignó, entra
+        # por assigned_exec_ids y sigue visible/tildado al editar.
+        coord_q = Q(is_active=True, profile__role=Role.COORDINADOR)
+        if user is not None:
+            coord_q &= ~Q(pk=user.pk)
         self.fields['executors'].queryset = User.objects.filter(
-            Q(is_active=True, profile__role=Role.EJECUTOR) | Q(pk__in=assigned_exec_ids)
+            Q(is_active=True, profile__role=Role.EJECUTOR) | coord_q
+            | Q(pk__in=assigned_exec_ids)
         ).order_by('first_name', 'email')
         self.fields['experts'].queryset = User.objects.filter(
             Q(is_active=True, profile__role=Role.EXPERTO) | Q(pk__in=assigned_expert_ids)
