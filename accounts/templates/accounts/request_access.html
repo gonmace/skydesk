@@ -3,7 +3,8 @@
 {% block auth_subtitle %}Ingresá tu correo para empezar{% endblock %}
 
 {% block auth_content %}
-<form method="post" class="space-y-4" novalidate>
+<div id="req-messages" class="space-y-2 mb-4"></div>
+<form method="post" class="space-y-4" novalidate id="request-access-form">
   {% csrf_token %}
   <p class="text-sm text-base-content/60">
     Si tu correo está habilitado, te enviaremos un enlace para crear tu contraseña y activar la cuenta.
@@ -21,4 +22,63 @@
 
 {% block auth_footer %}
 ¿Ya tenés cuenta? <a href="{% url 'accounts:login' %}" class="text-primary hover:underline">Iniciá sesión</a>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+(function () {
+  var form = document.getElementById('request-access-form');
+  var box = document.getElementById('req-messages');
+  var btn = form.querySelector('button[type="submit"]');
+  var btnLabel = btn.textContent;
+
+  var ALERT_CLASS = {
+    success: 'alert-success', error: 'alert-error',
+    warning: 'alert-warning', info: 'alert-info',
+  };
+
+  function escapeHtml(s) {
+    var d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  function renderMessages(list) {
+    box.innerHTML = '';
+    (list || []).forEach(function (m) {
+      var div = document.createElement('div');
+      div.className = 'alert ' + (ALERT_CLASS[m.tag] || 'alert-info') + ' text-sm py-2';
+      div.innerHTML = '<span>' + escapeHtml(m.text) + '</span>';
+      box.appendChild(div);
+    });
+  }
+
+  function onSubmit(ev) {
+    ev.preventDefault();
+    btn.disabled = true;
+    btn.textContent = 'Enviando…';
+    fetch(form.action || window.location.href, {
+      method: 'POST',
+      body: new FormData(form),
+      headers: { 'X-Requested-With': 'XMLHttpRequest' },
+    })
+      .then(function (r) {
+        var ct = r.headers.get('content-type') || '';
+        if (ct.indexOf('application/json') === -1) throw new Error('non-json');
+        return r.json();
+      })
+      .then(function (data) {
+        renderMessages(data.messages);
+        btn.disabled = false;
+        btn.textContent = btnLabel;
+      })
+      .catch(function () {
+        // Respuesta inesperada (p.ej. sesión vencida devolviendo HTML): fallback al POST normal.
+        form.removeEventListener('submit', onSubmit);
+        form.submit();
+      });
+  }
+  form.addEventListener('submit', onSubmit);
+})();
+</script>
 {% endblock %}

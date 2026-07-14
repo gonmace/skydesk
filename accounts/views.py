@@ -24,6 +24,7 @@ from django.views.decorators.http import require_POST
 
 from attachments.forms import NextcloudConfigForm
 from attachments.models import NextcloudConfig
+from core.mail import send_mail_async, send_mail_now
 
 from .access import is_email_allowed, resolve_default_role
 from .forms import (
@@ -62,12 +63,19 @@ def _get_or_create_pending_user(email, role=''):
     return user
 
 
-def _send_activation_email(request, user):
+def _send_activation_email(request, user, sync=False):
+    """Manda el correo de activación. `sync=True` lo envía en el request y propaga
+    cualquier error de SMTP (usado en `request_access`, donde el usuario espera ver
+    si el envío funcionó); si no, se manda en segundo plano como el resto de la app."""
     uid = urlsafe_base64_encode(force_bytes(user.pk))
     token = default_token_generator.make_token(user)
     link = request.build_absolute_uri(reverse('accounts:activate', args=[uid, token]))
     body = render_to_string('accounts/emails/activation.txt', {'user': user, 'link': link})
-    user.email_user('Activá tu cuenta — SkyDesk Tickets', body)
+    subject = 'Activá tu cuenta — SkyDesk Tickets'
+    if sync:
+        send_mail_now(subject, body, [user.email])
+    else:
+        send_mail_async(subject, body, [user.email])
 
 
 def _superuser_required(view):
@@ -114,19 +122,74 @@ def _client_ip(request):
     return client_ip(request)
 
 
-def _request_access_allowed(request, email):
-    """Throttle anti-abuso: cooldown por email (10 min) + tope por IP (10/h)."""
+def _access_throttle_check(request, email):
+    """Solo lectura: 'ok' si se puede mandar activación, o el motivo del bloqueo
+    ('email' = cooldown de ese correo, 'ip' = tope de la IP). No toca la cache —
+    separado de `_access_throttle_bump_ip`/`_access_throttle_set_email` para poder
+    avisar el motivo sin fingir éxito ni consumir cupo cuando el envío después falla."""
     ip = _client_ip(request)
-    email_key = f'reqacc:email:{email.lower()}'
+    if cache.get(f'reqacc:email:{email.lower()}'):
+        return 'email'
+    if cache.get(f'reqacc:ip:{ip}', 0) >= 10:
+        return 'ip'
+    return 'ok'
+
+
+def _access_throttle_bump_ip(request):
+    ip = _client_ip(request)
     ip_key = f'reqacc:ip:{ip}'
-    if cache.get(email_key):
-        return False
-    ip_count = cache.get(ip_key, 0)
-    if ip_count >= 10:
-        return False
-    cache.set(email_key, 1, 600)            # 10 minutos
-    cache.set(ip_key, ip_count + 1, 3600)   # ventana de 1 hora
-    return True
+    cache.set(ip_key, cache.get(ip_key, 0) + 1, 3600)   # ventana de 1 hora
+
+
+def _access_throttle_set_email(email):
+    cache.set(f'reqacc:email:{email.lower()}', 1, 600)  # 10 minutos
+
+
+def _process_access_request(request, email):
+    """Decide y ejecuta qué pasa con una solicitud de acceso; devuelve el resultado
+    para que la vista lo muestre (AJAX) o lo vuelque a `messages` (fallback sin JS).
+
+    Anti-enumeración: si el correo NO está habilitado, se responde con el mensaje
+    neutro de siempre (no confirma que no existe). Si SÍ está habilitado, ahora se
+    confirma explícitamente y se intenta el envío en el momento (sync) para poder
+    mostrar el error real de SMTP en vez de tragarlo en el log."""
+    _access_throttle_bump_ip(request)  # el tope por IP corre siempre, esté o no habilitado
+    if not is_email_allowed(email):
+        return {'ok': True, 'messages': [{'text': NEUTRAL_MSG, 'tag': 'info'}]}
+
+    if _access_throttle_check(request, email) != 'ok':
+        return {'ok': False, 'messages': [{
+            'text': 'Ya te enviamos un enlace hace poco. Esperá unos minutos e intentá de nuevo.',
+            'tag': 'warning',
+        }]}
+
+    # Solo se envía activación a cuentas que NUNCA activaron (sin contraseña usable):
+    # así un usuario dado de baja no puede reactivarse solo.
+    user = _get_or_create_pending_user(email)
+    if user.is_active or user.has_usable_password():
+        return {'ok': True, 'messages': [{
+            'text': 'Esa cuenta ya está activa. Iniciá sesión.', 'tag': 'info',
+        }]}
+
+    try:
+        _send_activation_email(request, user, sync=True)
+    except Exception as exc:
+        # No se fija el cooldown de email: se puede reintentar de una vez tras arreglar el SMTP.
+        return {'ok': False, 'messages': [{
+            'text': f'Correo habilitado ({email}), pero no se pudo enviar: {exc}', 'tag': 'error',
+        }]}
+
+    _access_throttle_set_email(email)
+    return {'ok': True, 'messages': [
+        {'text': f'Correo habilitado ({email}).', 'tag': 'success'},
+        {'text': 'Te enviamos el enlace de activación. Revisá tu bandeja de entrada.', 'tag': 'success'},
+    ]}
+
+
+_MESSAGE_LEVEL = {
+    'success': messages.SUCCESS, 'error': messages.ERROR,
+    'warning': messages.WARNING, 'info': messages.INFO,
+}
 
 
 # ── Onboarding ──────────────────────────────────────────────────────────────
@@ -134,18 +197,20 @@ def _request_access_allowed(request, email):
 def request_access(request):
     if request.user.is_authenticated:
         return redirect('tickets:board')
+    is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
     if request.method == 'POST':
         form = RequestAccessForm(request.POST)
         if form.is_valid():
-            email = form.cleaned_data['email']
-            # Throttle + allow-list. Solo se envía activación a cuentas que NUNCA activaron
-            # (sin contraseña usable): así un usuario dado de baja no puede reactivarse solo.
-            if _request_access_allowed(request, email) and is_email_allowed(email):
-                user = _get_or_create_pending_user(email)
-                if not user.is_active and not user.has_usable_password():
-                    _send_activation_email(request, user)
-            messages.success(request, NEUTRAL_MSG)
+            result = _process_access_request(request, form.cleaned_data['email'])
+            if is_ajax:
+                return JsonResponse(result, status=200 if result['ok'] else 400)
+            for m in result['messages']:
+                messages.add_message(request, _MESSAGE_LEVEL[m['tag']], m['text'])
             return redirect('accounts:login')
+        if is_ajax:
+            return JsonResponse({'ok': False, 'messages': [
+                {'text': 'Ingresá un correo válido.', 'tag': 'error'},
+            ]}, status=400)
     else:
         form = RequestAccessForm()
     return render(request, 'accounts/request_access.html', {'form': form})

@@ -36,6 +36,18 @@ def resolve_from_email():
     return settings.DEFAULT_FROM_EMAIL
 
 
+def send_mail_now(subject, message, recipient_list, from_email=None):
+    """Envía en el request (síncrono) con fail_silently=False: propaga la excepción
+    de SMTP para que el llamador la muestre. Usar solo donde el usuario espera ver
+    el resultado del envío en el momento (p.ej. solicitar acceso) — en el resto de
+    los casos preferir `send_mail_async` para no retener el request con un SMTP lento.
+    """
+    connection = get_mail_connection()
+    from_email = from_email or resolve_from_email()
+    send_mail(subject, message, from_email, recipient_list,
+               connection=connection, fail_silently=False)
+
+
 def send_mail_async(subject, message, recipient_list, from_email=None):
     """`send_mail` en un thread daemon: el request responde sin esperar al SMTP.
 
