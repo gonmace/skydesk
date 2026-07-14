@@ -763,17 +763,16 @@ def nextcloud_callback(request):
 @login_required
 @require_POST
 def dev_impersonate(request):
-    """Impersonar a un usuario real (solo DEBUG + superuser): guarda su id en la sesión;
+    """Impersonar a un usuario real (solo superuser): guarda su id en la sesión;
     `DevImpersonationMiddleware` reemplaza `request.user` por ese usuario en cada request
     siguiente, así se ve la app con sus datos reales (tickets asignados, notificaciones).
-    No existe fuera de DEBUG ni para no-superuser — 404 directo, sin insinuar que el
-    feature existe en producción.
+    No existe para no-superuser — 404 directo, sin insinuar que el feature existe.
 
     `request.real_user` es el superuser real cuando ya se está impersonando a alguien
     (lo cuelga el middleware); se usa acá en vez de `request.user` para permitir cambiar
     de usuario impersonado sin tener que salir primero."""
     real_user = getattr(request, 'real_user', request.user)
-    if not settings.DEBUG or not real_user.is_superuser:
+    if not real_user.is_superuser:
         raise Http404
     user_id = request.POST.get('user_id', '')
     if user_id and User.objects.filter(pk=user_id, is_active=True).exists():

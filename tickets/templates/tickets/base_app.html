@@ -56,12 +56,12 @@
           {% endif %}
           {% if dev_impersonate_available %}
             <div class="dropdown dropdown-end">
-              <button tabindex="0" class="btn btn-sm gap-1 {% if dev_impersonate_active %}btn-warning{% else %}btn-ghost{% endif %}" title="Impersonar un usuario real (solo dev)">
+              <button tabindex="0" class="btn btn-sm gap-1 {% if dev_impersonate_active %}btn-warning{% else %}btn-ghost{% endif %}" title="Impersonar un usuario real">
                 <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                 <span class="hidden sm:inline text-xs">{% if dev_impersonate_active %}{{ dev_impersonate_active.get_full_name|default:dev_impersonate_active.email }}{% else %}Impersonar{% endif %}</span>
               </button>
               <ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box z-40 w-72 p-2 border border-base-300 shadow">
-                <li class="menu-title text-xs">Impersonar usuario (dev)</li>
+                <li class="menu-title text-xs">Impersonar usuario</li>
                 {% if dev_impersonate_active %}
                   <li class="border-b border-base-200 mb-1 pb-1">
                     <form method="post" action="{% url 'accounts:dev_impersonate' %}" class="contents">

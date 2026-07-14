@@ -1,5 +1,4 @@
 """Middlewares de accounts."""
-from django.conf import settings
 from django.contrib.auth import get_user_model, logout
 
 User = get_user_model()
@@ -29,7 +28,7 @@ class NextcloudUidMismatchMiddleware:
 
 
 class DevImpersonationMiddleware:
-    """Permite al superuser navegar la app siendo realmente otro usuario (solo DEBUG).
+    """Permite al superuser navegar la app siendo realmente otro usuario.
 
     A diferencia de simular un rol, acá se reemplaza `request.user` por el usuario elegido
     (guardado en la sesión como `impersonate_id` por `accounts.views.dev_impersonate`), así
@@ -38,19 +37,21 @@ class DevImpersonationMiddleware:
     `accounts.permissions`. La sesión autenticada sigue siendo la del superuser; el
     reemplazo es solo en memoria, por request. `request.real_user` guarda al superuser
     real mientras dura la impersonación, para el banner y el link de "Salir".
+
+    Activo en todo entorno (no solo DEBUG): el único gate es que `real_user` sea
+    superuser, chequeado acá y de nuevo en `accounts.views.dev_impersonate`.
     """
 
     def __init__(self, get_response):
         self.get_response = get_response
 
     def __call__(self, request):
-        if settings.DEBUG:
-            real_user = getattr(request, 'user', None)
-            if real_user is not None and real_user.is_authenticated and real_user.is_superuser:
-                target_id = request.session.get('impersonate_id')
-                if target_id:
-                    target = User.objects.filter(pk=target_id, is_active=True).first()
-                    if target:
-                        request.real_user = real_user
-                        request.user = target
+        real_user = getattr(request, 'user', None)
+        if real_user is not None and real_user.is_authenticated and real_user.is_superuser:
+            target_id = request.session.get('impersonate_id')
+            if target_id:
+                target = User.objects.filter(pk=target_id, is_active=True).first()
+                if target:
+                    request.real_user = real_user
+                    request.user = target
         return self.get_response(request)

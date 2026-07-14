@@ -50,6 +50,9 @@ MIDDLEWARE = [
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'accounts.middleware.NextcloudUidMismatchMiddleware',
+    # Impersonar (solo superuser, ver accounts/middleware.py): activo en todo entorno,
+    # no solo DEBUG — el gate real es el chequeo de superuser, no el modo de arranque.
+    'accounts.middleware.DevImpersonationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
 ]
 
@@ -58,10 +61,7 @@ TAILWIND_APP_NAME = 'theme'
 
 if DEBUG:
     INSTALLED_APPS += ['django_browser_reload']
-    MIDDLEWARE += [
-        'django_browser_reload.middleware.BrowserReloadMiddleware',
-        'accounts.middleware.DevImpersonationMiddleware',
-    ]
+    MIDDLEWARE += ['django_browser_reload.middleware.BrowserReloadMiddleware']
     INTERNAL_IPS = ['127.0.0.1', '::1']
     import sys
     if sys.platform == 'win32':

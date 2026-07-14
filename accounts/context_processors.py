@@ -1,5 +1,4 @@
 """Inyecta flags de navegación según el rol/capacidades del usuario."""
-from django.conf import settings
 from django.contrib.auth import get_user_model
 
 from .models import RACI_LETTER, Role
@@ -11,10 +10,10 @@ def nav_flags(request):
     if not user or not user.is_authenticated:
         return {}
     role = get_user_role(user)
-    # request.real_user lo cuelga DevImpersonationMiddleware (solo DEBUG) cuando el
-    # superuser real está impersonando a `user`. Si no existe, `user` ES el real.
+    # request.real_user lo cuelga DevImpersonationMiddleware cuando el superuser real
+    # está impersonando a `user`. Si no existe, `user` ES el real.
     real_user = getattr(request, 'real_user', user)
-    impersonate_available = settings.DEBUG and real_user.is_superuser
+    impersonate_available = real_user.is_superuser
     return {
         'nav_can_seguimiento': has_capability(user, 'chat.view_all'),
         'nav_can_dashboard': has_capability(user, 'dashboard.view'),

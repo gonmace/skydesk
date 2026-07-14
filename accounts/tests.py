@@ -1,6 +1,5 @@
 from unittest.mock import Mock, patch
 
-from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.tokens import default_token_generator
 from django.core import mail
@@ -17,18 +16,6 @@ from .models import (
 from .permissions import has_capability
 
 User = get_user_model()
-
-# Middleware real + el de impersonación (que en settings.py solo se agrega si DEBUG ya
-# era True al arrancar el proceso — acá lo sumamos explícitamente para poder probarlo sin
-# depender de con qué DEBUG arrancó el test runner). Se excluye BrowserReloadMiddleware:
-# manage.py test fuerza DEBUG=False para toda la corrida (setup_test_environment), así que
-# las urls de django_browser_reload (registradas condicionalmente en core/urls.py, ya
-# importado para entonces) no existen — dejarlo en la cadena rompería cualquier response.
-_IMPERSONATE_MW = 'accounts.middleware.DevImpersonationMiddleware'
-_BROWSER_RELOAD_MW = 'django_browser_reload.middleware.BrowserReloadMiddleware'
-MIDDLEWARE_WITH_IMPERSONATION = [m for m in settings.MIDDLEWARE if m != _BROWSER_RELOAD_MW]
-if _IMPERSONATE_MW not in MIDDLEWARE_WITH_IMPERSONATION:
-    MIDDLEWARE_WITH_IMPERSONATION.append(_IMPERSONATE_MW)
 
 # Cache locmem (sesiones + rate-limit sin Redis) y estáticos sin manifest (sin collectstatic).
 OV = dict(
@@ -472,9 +459,9 @@ class NextcloudUidMismatchMiddlewareTests(TestCase):
 
 
 class DevImpersonationTests(TestCase):
-    """Impersonar usuario dev: no existe fuera de DEBUG ni para no-superuser; una vez
-    activa, `request.user` pasa a ser realmente ese usuario (sus tickets, su rol, sus
-    capacidades) — no un rol simulado sin datos."""
+    """Impersonar usuario real: activo en todo entorno (no solo DEBUG), gateado solo por
+    superuser. Una vez activa, `request.user` pasa a ser realmente ese usuario (sus
+    tickets, su rol, sus capacidades) — no un rol simulado sin datos."""
 
     def setUp(self):
         self.superuser = User.objects.create_superuser('root@empresa.com', 'root@empresa.com', 'x')
@@ -486,21 +473,13 @@ class DevImpersonationTests(TestCase):
         self.ticket = Ticket.objects.create(title='Ticket de ej', reporter=self.superuser)
         Assignment.objects.create(ticket=self.ticket, user=self.ejecutor, kind=Assignment.Kind.EJECUTOR)
 
-    @override_settings(**OV)   # la página 404 default también renderiza {% static %}
-    def test_disabled_without_debug(self):
-        # DEBUG=False es lo que corre por defecto en tests (Django lo fuerza así), así que
-        # esto ya prueba el caso real de producción sin necesidad de override.
-        self.client.force_login(self.superuser)
-        r = self.client.post(reverse('accounts:dev_impersonate'), {'user_id': self.ejecutor.pk})
-        self.assertEqual(r.status_code, 404)
-
-    @override_settings(DEBUG=True, MIDDLEWARE=MIDDLEWARE_WITH_IMPERSONATION, **OV)
+    @override_settings(**OV)
     def test_non_superuser_cannot_impersonate(self):
         self.client.force_login(self.other)
         r = self.client.post(reverse('accounts:dev_impersonate'), {'user_id': self.ejecutor.pk})
         self.assertEqual(r.status_code, 404)
 
-    @override_settings(DEBUG=True, MIDDLEWARE=MIDDLEWARE_WITH_IMPERSONATION, **OV)
+    @override_settings(**OV)   # DEBUG=False (default forzado por el test runner): prueba el caso de producción
     def test_superuser_impersonates_and_sees_real_data(self):
         self.client.force_login(self.superuser)
         # Sin impersonar: el superuser ve el dashboard (bypassa todos los checks).
@@ -515,7 +494,7 @@ class DevImpersonationTests(TestCase):
         self.assertNotContains(board, 'Cuentas')      # nav de superuser oculta mientras impersona
         self.assertContains(board, 'Ticket de ej')    # ve SU ticket real, no uno vacío
 
-    @override_settings(DEBUG=True, MIDDLEWARE=MIDDLEWARE_WITH_IMPERSONATION, **OV)
+    @override_settings(**OV)
     def test_clearing_impersonation_restores_superuser_view(self):
         self.client.force_login(self.superuser)
         self.client.post(reverse('accounts:dev_impersonate'), {'user_id': self.ejecutor.pk})
