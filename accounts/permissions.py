@@ -50,12 +50,11 @@ DEFAULT_ROLE_CAPS = {
         'tickets.view_all', 'chat.view_all', 'dashboard.view',
         'tickets.view_waiting', 'tickets.board_by_ticket',
     },
-    # Espía solo-lectura: como Seguimiento pero además ve «Entrada» (view_backlog,
-    # que antes iba implícita en tickets.assign). Nada de escritura/participación.
-    Role.ADMINISTRADOR: {
-        'tickets.view_all', 'chat.view_all', 'dashboard.view',
-        'tickets.view_waiting', 'tickets.view_backlog', 'tickets.board_by_ticket',
-    },
+    # Mismos privilegios que Coordinador (ver migración 0017): la única diferencia con
+    # Coordinador es que Administrador nunca aparece como asignable/participante en
+    # tickets ni listado en /acceso/admin/ — eso lo garantizan filtros explícitos por
+    # Role.ADMINISTRADOR en tickets/forms.py y accounts/views.py, no las capacidades.
+    Role.ADMINISTRADOR: set(CAPABILITY_KEYS),
 }
 
 # Roles que además del default de su rol pueden tener overrides individuales por
