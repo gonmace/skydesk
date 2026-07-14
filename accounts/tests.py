@@ -1,8 +1,12 @@
+import io
+import shutil
+import tempfile
 from unittest.mock import Mock, patch
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.tokens import default_token_generator
 from django.core import mail
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils.encoding import force_bytes
@@ -10,8 +14,8 @@ from django.utils.http import urlsafe_base64_encode
 
 from .access import is_email_allowed, resolve_default_role
 from .models import (
-    AllowedDomain, AllowedEmail, EmailConfig, NextcloudOAuthConfig, Profile, Role,
-    RolePermission, UserPermission,
+    AllowedDomain, AllowedEmail, BrandingConfig, EmailConfig, NextcloudOAuthConfig,
+    Profile, Role, RolePermission, UserPermission,
 )
 from .permissions import has_capability
 
@@ -286,6 +290,70 @@ class EmailConfigViewTests(TestCase):
         self.assertEqual(len(mail.outbox), 1)
         self.assertIn(self.superuser.email, mail.outbox[0].to)
         self.assertFalse(EmailConfig.load().enabled)
+
+
+def _png_bytes(color='red'):
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new('RGB', (4, 4), color).save(buf, 'PNG')
+    return buf.getvalue()
+
+
+_BRANDING_MEDIA_ROOT = tempfile.mkdtemp(prefix='skydesk-test-branding-')
+
+
+@override_settings(MEDIA_ROOT=_BRANDING_MEDIA_ROOT, **OV)
+class BrandingConfigTests(TestCase):
+    """Logo configurable por el superuser (accounts:branding_config/branding_logo):
+    si solo se sube el claro, el oscuro cae al mismo (ver accounts.views.branding_logo)."""
+
+    @classmethod
+    def tearDownClass(cls):
+        super().tearDownClass()
+        shutil.rmtree(_BRANDING_MEDIA_ROOT, ignore_errors=True)
+
+    def setUp(self):
+        self.user = User.objects.create_user('u@empresa.com', 'u@empresa.com', 'ClaveReal123', is_active=True)
+        self.superuser = User.objects.create_superuser('root@empresa.com', 'root@empresa.com', 'ClaveReal123')
+
+    def test_non_superuser_redirected(self):
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.get(reverse('accounts:branding_config')).status_code, 302)
+
+    def test_logo_missing_returns_404(self):
+        self.assertEqual(self.client.get(reverse('accounts:branding_logo', args=['light'])).status_code, 404)
+        self.assertEqual(self.client.get(reverse('accounts:branding_logo', args=['dark'])).status_code, 404)
+
+    def test_invalid_variant_returns_404(self):
+        self.assertEqual(self.client.get(reverse('accounts:branding_logo', args=['sepia'])).status_code, 404)
+
+    def test_light_only_falls_back_for_dark(self):
+        self.client.force_login(self.superuser)
+        upload = SimpleUploadedFile('logo.png', _png_bytes(), content_type='image/png')
+        r = self.client.post(reverse('accounts:branding_config'), {'logo_light': upload})
+        self.assertEqual(r.status_code, 302)
+
+        light = self.client.get(reverse('accounts:branding_logo', args=['light']))
+        dark = self.client.get(reverse('accounts:branding_logo', args=['dark']))
+        self.assertEqual(light.status_code, 200)
+        self.assertEqual(dark.status_code, 200)
+        self.assertEqual(b''.join(dark.streaming_content), b''.join(light.streaming_content))
+
+    def test_both_uploaded_serve_independently(self):
+        self.client.force_login(self.superuser)
+        self.client.post(reverse('accounts:branding_config'), {
+            'logo_light': SimpleUploadedFile('light.png', _png_bytes('red'), content_type='image/png'),
+            'logo_dark': SimpleUploadedFile('dark.png', _png_bytes('blue'), content_type='image/png'),
+        })
+        light = self.client.get(reverse('accounts:branding_logo', args=['light']))
+        dark = self.client.get(reverse('accounts:branding_logo', args=['dark']))
+        self.assertNotEqual(b''.join(light.streaming_content), b''.join(dark.streaming_content))
+
+    def test_board_uses_default_logo_when_unconfigured(self):
+        self.client.force_login(self.superuser)
+        r = self.client.get(reverse('tickets:board'))
+        self.assertContains(r, 'img/logo.png')
+        self.assertContains(r, 'img/logo-dark.png')
 
 
 @override_settings(**OV)

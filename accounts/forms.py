@@ -4,7 +4,9 @@ from django.contrib.auth.forms import (
     AuthenticationForm, PasswordResetForm, SetPasswordForm,
 )
 
-from .models import AllowedDomain, AllowedEmail, EmailConfig, NextcloudOAuthConfig, Role
+from .models import (
+    AllowedDomain, AllowedEmail, BrandingConfig, EmailConfig, NextcloudOAuthConfig, Role,
+)
 
 _INPUT = 'input input-bordered w-full'
 _SELECT = 'select select-bordered w-full'
@@ -233,6 +235,19 @@ class EmailConfigForm(forms.ModelForm):
     def clean_password(self):
         password = self.cleaned_data.get('password', '').strip()
         return password or (self.instance.password if self.instance else '')
+
+
+class BrandingConfigForm(forms.ModelForm):
+    """Editada solo por el superuser (accounts:branding_config). Cada campo tiene su
+    checkbox nativo de «Clear» (ClearableFileInput) para volver al logo por defecto."""
+
+    class Meta:
+        model = BrandingConfig
+        fields = ('logo_light', 'logo_dark')
+        widgets = {
+            'logo_light': forms.ClearableFileInput(attrs={'class': 'file-input file-input-bordered w-full'}),
+            'logo_dark': forms.ClearableFileInput(attrs={'class': 'file-input file-input-bordered w-full'}),
+        }
 
 
 class AllowedEmailForm(forms.ModelForm):

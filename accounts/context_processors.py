@@ -1,8 +1,18 @@
 """Inyecta flags de navegación según el rol/capacidades del usuario."""
 from django.contrib.auth import get_user_model
+from django.urls import reverse
 
-from .models import RACI_LETTER, Role
+from .models import RACI_LETTER, BrandingConfig, Role
 from .permissions import get_user_role, has_capability
+
+
+def _brand_logo_url(variant, has_file, updated):
+    """URL del logo subido (servida por accounts.views.branding_logo, con fallback
+    dark→light ahí mismo) o None para que el template caiga al estático por defecto.
+    Cache-bust con `updated` para que un reemplazo se vea sin esperar el TTL del navegador."""
+    if not has_file:
+        return None
+    return f"{reverse('accounts:branding_logo', args=[variant])}?v={int(updated.timestamp())}"
 
 
 def nav_flags(request):
@@ -14,6 +24,7 @@ def nav_flags(request):
     # está impersonando a `user`. Si no existe, `user` ES el real.
     real_user = getattr(request, 'real_user', user)
     impersonate_available = real_user.is_superuser
+    branding = BrandingConfig.load()
     return {
         'nav_can_seguimiento': has_capability(user, 'chat.view_all'),
         'nav_can_dashboard': has_capability(user, 'dashboard.view'),
@@ -26,6 +37,11 @@ def nav_flags(request):
         'nav_role': role or '',
         'nav_role_label': dict(Role.choices).get(role, ''),
         'nav_raci': RACI_LETTER.get(role, ''),
+        # Logo del header — accounts.views.branding_config/branding_logo. None = estático por defecto.
+        'brand_logo_light_url': _brand_logo_url('light', bool(branding.logo_light), branding.updated),
+        'brand_logo_dark_url': _brand_logo_url(
+            'dark', bool(branding.logo_dark or branding.logo_light), branding.updated,
+        ),
         # Impersonar usuario real (dev) — ver accounts/middleware.py y accounts/views.dev_impersonate.
         'dev_impersonate_available': impersonate_available,
         'dev_impersonate_active': user if real_user is not user else None,

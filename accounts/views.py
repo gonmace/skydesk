@@ -12,7 +12,7 @@ from django.contrib.auth.views import LoginView, redirect_to_login
 from django.core.cache import cache
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
-from django.http import Http404, JsonResponse
+from django.http import FileResponse, Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
 from django.urls import reverse
@@ -29,12 +29,12 @@ from core.mail import send_mail_async, send_mail_now
 from .access import is_email_allowed, resolve_default_role
 from .forms import (
     ActivationForm, AdminUserEditForm, AllowedDomainForm, AllowedEmailForm,
-    EmailAuthenticationForm, EmailConfigForm, InviteForm, NextcloudOAuthConfigForm,
-    ProfileNameForm, RequestAccessForm, role_choices_for,
+    BrandingConfigForm, EmailAuthenticationForm, EmailConfigForm, InviteForm,
+    NextcloudOAuthConfigForm, ProfileNameForm, RequestAccessForm, role_choices_for,
 )
 from .models import (
-    AllowedDomain, AllowedEmail, EmailConfig, NextcloudOAuthConfig, Profile, Role,
-    RolePermission, UserPermission,
+    AllowedDomain, AllowedEmail, BrandingConfig, EmailConfig, NextcloudOAuthConfig,
+    Profile, Role, RolePermission, UserPermission,
 )
 from .permissions import (
     CAPABILITIES, DEFAULT_ROLE_CAPS, INDIVIDUAL_OVERRIDE_ROLES, get_user_role,
@@ -634,6 +634,42 @@ def email_config(request):
             messages.error(request, 'Revisá los datos.')
 
     return render(request, 'accounts/email_config.html', {'form': form, 'config': config})
+
+
+@_superuser_required
+def branding_config(request):
+    """Logo de la app (arriba a la izquierda) editable solo por el superuser. Cada
+    variante (claro/oscuro) tiene su checkbox nativo de «Clear» para volver al logo
+    por defecto de SkyDesk."""
+    config = BrandingConfig.load()
+    form = BrandingConfigForm(instance=config)
+
+    if request.method == 'POST':
+        form = BrandingConfigForm(request.POST, request.FILES, instance=config)
+        if form.is_valid():
+            form.save()
+            messages.success(request, 'Logo actualizado.')
+            return redirect('accounts:branding_config')
+        else:
+            messages.error(request, 'Revisá el archivo (formato de imagen, máx. 2 MB).')
+
+    return render(request, 'accounts/branding_config.html', {'form': form, 'config': config})
+
+
+def branding_logo(request, variant):
+    """Sirve el logo subido por el superuser. No usa la URL de MEDIA_ROOT porque nginx
+    no expone `/media/` en producción (ver el comentario en `nginx.conf`); acá el
+    request ya pasó por nginx `location /` hasta Django, así que sirve en cualquier
+    entorno sin configuración adicional. Público (sin login): es solo el logo del
+    header, no hay nada sensible que proteger. Si no hay logo oscuro propio pero sí
+    claro, el oscuro cae al claro (mismo criterio que `nav_flags`)."""
+    config = BrandingConfig.load()
+    field = config.logo_dark if (variant == 'dark' and config.logo_dark) else config.logo_light
+    if variant not in ('light', 'dark') or not field:
+        raise Http404
+    response = FileResponse(field.open('rb'))  # FileResponse adivina el content-type por la extensión
+    response['Cache-Control'] = 'public, max-age=300'
+    return response
 
 
 # ── Login con Nextcloud (OAuth2) ────────────────────────────────────────────────

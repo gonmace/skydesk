@@ -42,5 +42,7 @@ urlpatterns = [
     path('roles/', views.roles_board, name='roles_board'),
     path('nextcloud/', views.nextcloud_config, name='nextcloud_config'),
     path('correo/', views.email_config, name='email_config'),
+    path('marca/', views.branding_config, name='branding_config'),
+    path('marca/logo/<str:variant>/', views.branding_logo, name='branding_logo'),
     path('dev/impersonar/', views.dev_impersonate, name='dev_impersonate'),
 ]

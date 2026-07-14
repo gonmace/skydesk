@@ -1,4 +1,7 @@
+import os
+
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
 
 
@@ -193,6 +196,52 @@ class EmailConfig(models.Model):
 
     def __str__(self):
         return f'Correo ({"SMTP propio" if self.enabled else "settings"})'
+
+    @classmethod
+    def load(cls):
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+
+def _validate_logo_size(value):
+    max_bytes = 2 * 1024 * 1024
+    if value.size > max_bytes:
+        raise ValidationError('El logo no puede superar los 2 MB.')
+
+
+def _branding_light_path(instance, filename):
+    return f'branding/logo-light{os.path.splitext(filename)[1].lower()}'
+
+
+def _branding_dark_path(instance, filename):
+    return f'branding/logo-dark{os.path.splitext(filename)[1].lower()}'
+
+
+class BrandingConfig(models.Model):
+    """Logo de la app (fila única, pk=1), editable por el superuser. Reemplaza el logo
+    estático (static/img/logo.png y logo-dark.png) que se ve arriba a la izquierda en
+    toda la app autenticada; un campo vacío cae al logo por defecto de SkyDesk (ver
+    `accounts.context_processors.nav_flags` y `tickets/base_app.html`). Se sirve por
+    `accounts.views.branding_logo` en vez de la URL de MEDIA_ROOT: nginx no expone
+    `/media/` en producción (ver el comentario en `nginx.conf` sobre los adjuntos)."""
+    logo_light = models.ImageField(
+        'Logo (tema claro)', upload_to=_branding_light_path, blank=True,
+        validators=[_validate_logo_size],
+        help_text='PNG/JPG/WEBP, máx. 2 MB. Vacío = logo por defecto de SkyDesk.',
+    )
+    logo_dark = models.ImageField(
+        'Logo (tema oscuro)', upload_to=_branding_dark_path, blank=True,
+        validators=[_validate_logo_size],
+        help_text='Vacío = logo por defecto de SkyDesk.',
+    )
+    updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Configuración de logo'
+        verbose_name_plural = 'Configuración de logo'
+
+    def __str__(self):
+        return 'Logo personalizado' if (self.logo_light or self.logo_dark) else 'Logo por defecto'
 
     @classmethod
     def load(cls):

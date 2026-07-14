@@ -11,8 +11,16 @@
     <div class="container mx-auto max-w-[1600px] px-3 sm:px-6">
       <div class="flex items-center h-14 gap-2">
         <a id="nc-logo" href="{% url 'tickets:board' %}" class="mr-2 inline-flex items-center shrink-0">
-          <img src="{% static 'img/logo.png' %}" alt="SkyDesk" class="block dark:hidden h-7 w-auto">
-          <img src="{% static 'img/logo-dark.png' %}" alt="SkyDesk" class="hidden dark:block h-7 w-auto">
+          {% if brand_logo_light_url %}
+            <img src="{{ brand_logo_light_url }}" alt="Logo" class="block dark:hidden h-7 w-auto">
+          {% else %}
+            <img src="{% static 'img/logo.png' %}" alt="SkyDesk" class="block dark:hidden h-7 w-auto">
+          {% endif %}
+          {% if brand_logo_dark_url %}
+            <img src="{{ brand_logo_dark_url }}" alt="Logo" class="hidden dark:block h-7 w-auto">
+          {% else %}
+            <img src="{% static 'img/logo-dark.png' %}" alt="SkyDesk" class="hidden dark:block h-7 w-auto">
+          {% endif %}
         </a>
 
         <nav class="hidden sm:flex items-center gap-1 flex-1 min-w-0 overflow-x-auto">
@@ -44,9 +52,11 @@
             {% url 'accounts:roles_board' as u_rol %}
             {% url 'accounts:nextcloud_config' as u_ncloud %}
             {% url 'accounts:email_config' as u_mail %}
+            {% url 'accounts:branding_config' as u_brand %}
             <a href="{{ u_rol }}" data-nav-tab class="shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-sm font-semibold {% if request.path == u_rol %}bg-primary/10 text-primary{% else %}text-base-content/50 hover:text-base-content hover:bg-base-200{% endif %}">Roles</a>
             <a href="{{ u_ncloud }}" data-nav-tab class="shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-sm font-semibold {% if request.path == u_ncloud %}bg-primary/10 text-primary{% else %}text-base-content/50 hover:text-base-content hover:bg-base-200{% endif %}">Nextcloud</a>
             <a href="{{ u_mail }}" data-nav-tab class="shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-sm font-semibold {% if request.path == u_mail %}bg-primary/10 text-primary{% else %}text-base-content/50 hover:text-base-content hover:bg-base-200{% endif %}">Correo</a>
+            <a href="{{ u_brand }}" data-nav-tab class="shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-sm font-semibold {% if request.path == u_brand %}bg-primary/10 text-primary{% else %}text-base-content/50 hover:text-base-content hover:bg-base-200{% endif %}">Logo</a>
           {% endif %}
         </nav>
 
@@ -121,6 +131,7 @@
                 <li class="sm:hidden"><a href="{% url 'accounts:roles_board' %}">Roles</a></li>
                 <li class="sm:hidden"><a href="{% url 'accounts:nextcloud_config' %}">Nextcloud</a></li>
                 <li class="sm:hidden"><a href="{% url 'accounts:email_config' %}">Correo</a></li>
+                <li class="sm:hidden"><a href="{% url 'accounts:branding_config' %}">Logo</a></li>
               {% endif %}
               <li><a href="{% url 'tickets:archived' %}">Archivados</a></li>
               <li><a href="{% url 'accounts:profile' %}">Mi perfil</a></li>

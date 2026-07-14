@@ -1,0 +1,58 @@
+{% extends 'tickets/base_app.html' %}
+{% load static %}
+{% block title %}Logo{% endblock %}
+
+{% block app_content %}
+<div class="max-w-lg">
+  <h1 class="text-2xl font-black tracking-tight mb-1">Logo</h1>
+  <p class="text-sm text-base-content/50 mb-4">
+    Solo el superuser puede ver y editar esto. Reemplaza el logo de arriba a la izquierda en toda
+    la app. Si dejás el logo oscuro vacío pero cargás el claro, se usa el mismo para ambos temas.
+  </p>
+
+  <form method="post" enctype="multipart/form-data" class="space-y-6">
+    {% csrf_token %}
+    {% if form.non_field_errors %}<div class="alert alert-error text-sm py-2"><span>{{ form.non_field_errors.0 }}</span></div>{% endif %}
+
+    <div class="bg-base-100 rounded-2xl border border-base-300 p-6 space-y-4">
+      <h2 class="text-sm font-bold">Tema claro</h2>
+      <div class="flex items-center gap-4">
+        <div class="h-12 px-3 flex items-center bg-base-200 rounded-lg border border-base-300">
+          {% if brand_logo_light_url %}
+            <img src="{{ brand_logo_light_url }}" alt="Logo actual" class="h-7 w-auto">
+          {% else %}
+            <img src="{% static 'img/logo.png' %}" alt="Logo por defecto" class="h-7 w-auto">
+          {% endif %}
+        </div>
+        <div class="flex-1">
+          {{ form.logo_light }}
+          <p class="text-xs text-base-content/40 mt-1">{{ form.logo_light.help_text }}</p>
+          {% for e in form.logo_light.errors %}<p class="text-error text-xs mt-1">{{ e }}</p>{% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <div class="bg-base-100 rounded-2xl border border-base-300 p-6 space-y-4">
+      <h2 class="text-sm font-bold">Tema oscuro</h2>
+      <div class="flex items-center gap-4">
+        <div class="h-12 px-3 flex items-center bg-neutral rounded-lg border border-base-300">
+          {% if brand_logo_dark_url %}
+            <img src="{{ brand_logo_dark_url }}" alt="Logo actual" class="h-7 w-auto">
+          {% else %}
+            <img src="{% static 'img/logo-dark.png' %}" alt="Logo por defecto" class="h-7 w-auto">
+          {% endif %}
+        </div>
+        <div class="flex-1">
+          {{ form.logo_dark }}
+          <p class="text-xs text-base-content/40 mt-1">{{ form.logo_dark.help_text }}</p>
+          {% for e in form.logo_dark.errors %}<p class="text-error text-xs mt-1">{{ e }}</p>{% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <div class="flex gap-2 justify-end">
+      <button type="submit" class="btn btn-success btn-sm">Guardar</button>
+    </div>
+  </form>
+</div>
+{% endblock %}
