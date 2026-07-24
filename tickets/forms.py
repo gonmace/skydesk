@@ -7,7 +7,7 @@ User = get_user_model()
 
 _INPUT = 'input input-bordered w-full'
 _TEXTAREA = 'textarea textarea-bordered w-full'
-_SELECT = 'select select-bordered w-full'
+_SELECT = 'select select-bordered w-full min-w-0'
 _CHECKS = 'checkbox checkbox-sm checkbox-primary'
 
 
@@ -17,6 +17,14 @@ def _user_label(u):
     # Un usuario dado de baja que sigue asignado debe verse (y verse distinto): si no
     # apareciera en el form, guardar cualquier edición lo desasignaría en silencio.
     return label if u.is_active else f'{label} — dado de baja'
+
+
+def _project_label(p):
+    from django.utils.text import Truncator
+    # El <select> nativo no trunca de forma confiable un texto que excede su ancho
+    # (el navegador lo desborda visualmente en vez de recortarlo), así que se acorta
+    # la etiqueta mostrada; Project.__str__ (usado en el resto de la app) no cambia.
+    return Truncator(f'{p.code} · {p.name}').chars(70)
 
 
 class TicketForm(forms.ModelForm):
@@ -39,7 +47,10 @@ class TicketForm(forms.ModelForm):
             'title': forms.TextInput(attrs={'class': _INPUT, 'placeholder': 'Título del ticket'}),
             'solicitante': forms.TextInput(attrs={'class': _INPUT, 'placeholder': 'Quién lo solicita'}),
             'description': forms.Textarea(attrs={'class': _TEXTAREA, 'rows': 5}),
-            'project': forms.Select(attrs={'class': _SELECT}),
+            # 'block' pisa el display:inline-flex de .select: text-overflow:ellipsis
+            # solo aplica en contenedores de bloque, necesario porque el nombre del
+            # proyecto puede ser más ancho que el campo.
+            'project': forms.Select(attrs={'class': f'{_SELECT} block'}),
             'priority': forms.Select(attrs={'class': _SELECT}),
             'due_date': forms.DateInput(attrs={'class': _INPUT, 'type': 'date'}, format='%Y-%m-%d'),
             'labels': forms.CheckboxSelectMultiple(),
@@ -76,6 +87,7 @@ class TicketForm(forms.ModelForm):
         ).order_by('first_name', 'email')
         self.fields['executors'].label_from_instance = _user_label
         self.fields['experts'].label_from_instance = _user_label
+        self.fields['project'].label_from_instance = _project_label
         self.fields['executors'].initial = assigned_exec_ids
         self.fields['experts'].initial = assigned_expert_ids
         if not can_assign:

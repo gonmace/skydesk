@@ -30,11 +30,11 @@
         <label class="label" for="{{ form.description.id_for_label }}"><span class="label-text font-medium">Descripción</span></label>
         {{ form.description }}
       </div>
-      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div>
-          <label class="label" for="{{ form.project.id_for_label }}"><span class="label-text font-medium">Proyecto</span></label>
-          {{ form.project }}
-        </div>
+      <div>
+        <label class="label" for="{{ form.project.id_for_label }}"><span class="label-text font-medium">Proyecto</span></label>
+        {{ form.project }}
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label class="label" for="{{ form.priority.id_for_label }}"><span class="label-text font-medium">Prioridad</span></label>
           {{ form.priority }}
