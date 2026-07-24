@@ -73,6 +73,8 @@ python manage.py seed_demo   # demo users for all 4 roles + sample tickets
 
 See [TESTING-ROLES.md](TESTING-ROLES.md) for the demo credentials and a dev-only impersonation tool to browse as any user.
 
+Projects can also be bulk-imported from an Excel file with `python manage.py load_proyectos --file yourfile.xlsx` (idempotent, upserts by project code).
+
 Want the full stack locally (PostgreSQL 17 + Redis 7 in Docker)? `make dev-up` before `make dev`.
 
 ---

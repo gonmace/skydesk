@@ -12,6 +12,7 @@ make dev-check      # verifica estado del entorno
 
 # Django
 make migrate / migrations / superuser / shell / collect
+python manage.py load_proyectos [--file proyectos_bd.xlsx] [--dry-run]  # importa/sincroniza Project desde Excel (hoja "Base de datos ")
 
 # Producción
 make nginx          # configura nginx (SOLO la primera vez — certbot modifica este archivo)

@@ -14,7 +14,7 @@ class Project(models.Model):
         CLOSED = 'CLOSED', 'Cerrado'
 
     name = models.CharField('Nombre', max_length=120)
-    code = models.CharField('Código', max_length=20, unique=True)
+    code = models.CharField('Código', max_length=30, unique=True)
     city = models.CharField('Ciudad', max_length=120, blank=True)
     status = models.CharField('Estado', max_length=10, choices=Status.choices, default=Status.ACTIVE)
     description = models.TextField('Descripción', blank=True)
