@@ -1,4 +1,8 @@
 #!/bin/sh
+# Cualquier paso que falle (collectstatic, migrate) corta el arranque: en producción el
+# manifest de Whitenoise es estricto y sin estáticos recopilados TODAS las páginas dan
+# 500 — mejor un contenedor caído y visible en los logs que uno "arriba" pero roto.
+set -e
 
 echo 'Esperando a que PostgreSQL esté disponible...'
 until python -c "

@@ -43,8 +43,16 @@ echo "▶ Actualizando código..."
 git pull origin main
 
 # Los crea el usuario del deploy (no el daemon de Docker como root): el contenedor
-# corre como UID 1000 y necesita poder escribir en estos volúmenes montados.
+# corre como UID 1000 y necesita poder escribir en estos volúmenes montados. Si ya
+# existían con otro dueño (Docker los creó como root en un deploy viejo, o el usuario
+# del VPS no es UID 1000), collectstatic falla con "Permission denied": se corrige acá.
 mkdir -p staticfiles media
+for d in staticfiles media; do
+    if [ "$(stat -c %u "$d")" != "1000" ]; then
+        echo "  Ajustando dueño de ./$d a UID 1000 (usuario del contenedor)..."
+        sudo chown -R 1000:1000 "$d"
+    fi
+done
 
 # ── 3. Construir lista de profiles ────────────────────────────────────────────
 PROFILES=""

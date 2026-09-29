@@ -367,5 +367,12 @@ LOGGING = {
             'level': 'ERROR',
             'propagate': True,
         },
+        # DisallowedHost (400 por Host fuera de ALLOWED_HOSTS), CSRF, etc.: sin esto en
+        # producción no se ven en `docker compose logs` y un 400 queda sin explicación.
+        'django.security': {
+            'handlers': ['console'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
     },
 }
