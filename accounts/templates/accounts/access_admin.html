@@ -128,6 +128,25 @@
     </div>
   </section>
 
+  {% if email_config_form %}
+  <!-- Correo saliente (SMTP) — solo superuser; la config es GLOBAL del servidor -->
+  <section class="bg-base-100 rounded-2xl border border-base-300 p-5 lg:col-span-2">
+    <h2 class="text-sm font-bold mb-1">Correo saliente (SMTP)</h2>
+    <p class="text-xs text-base-content/50 mb-4">
+      Configuración global del servidor, común a todas las empresas: es la cuenta que envía
+      invitaciones, recuperación de contraseña y avisos. El remitente con el que firma cada
+      empresa se define en su ficha (<a class="link" href="{% url 'companies:edit' current_company.slug %}">Marca</a>).
+      «Enviar correo de prueba» usa los valores del formulario sin guardarlos y manda un
+      correo a tu cuenta ({{ request.user.email }}).
+    </p>
+    <form method="post" action="{% url 'companies:email_config' %}" class="space-y-4" data-submit-spinner>
+      {% csrf_token %}
+      <input type="hidden" name="next" value="{{ request.get_full_path }}">
+      {% with form=email_config_form %}{% include 'accounts/_email_config_fields.html' %}{% endwith %}
+    </form>
+  </section>
+  {% endif %}
+
   <!-- Invitar -->
   <section class="bg-base-100 rounded-2xl border border-base-300 p-5 lg:col-span-2">
     <h2 class="text-sm font-bold mb-3">Invitar a alguien</h2>

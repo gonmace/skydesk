@@ -30,7 +30,10 @@
   var form = document.getElementById('request-access-form');
   var box = document.getElementById('req-messages');
   var btn = form.querySelector('button[type="submit"]');
-  var btnLabel = btn.textContent;
+  var btnHtml = btn.innerHTML;
+  // Mismo spinner que data-submit-spinner (static/js/app.js): el envío es síncrono en el
+  // servidor (espera al SMTP), así que sin feedback el botón parece colgado.
+  var SPINNER = '<span class="loading loading-spinner loading-xs"></span> Enviando…';
 
   var ALERT_CLASS = {
     success: 'alert-success', error: 'alert-error',
@@ -56,7 +59,7 @@
   function onSubmit(ev) {
     ev.preventDefault();
     btn.disabled = true;
-    btn.textContent = 'Enviando…';
+    btn.innerHTML = SPINNER;
     fetch(form.action || window.location.href, {
       method: 'POST',
       body: new FormData(form),
@@ -70,7 +73,7 @@
       .then(function (data) {
         renderMessages(data.messages);
         btn.disabled = false;
-        btn.textContent = btnLabel;
+        btn.innerHTML = btnHtml;
       })
       .catch(function () {
         // Respuesta inesperada (p.ej. sesión vencida devolviendo HTML): fallback al POST normal.

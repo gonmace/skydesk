@@ -271,9 +271,14 @@ fi
 # ── Escribir .env ──────────────────────────────────────────────────────────────
 python3 - << 'PYEOF'
 import os
+import re
 
 def kv(key, value):
-    if value and any(c in value for c in '$`"\\'):
+    # El .env lo cargan con `sh` el Makefile y deploy.sh (`. ./.env`): cualquier valor con
+    # espacios, < > # & ; | ( ) etc. rompe el parseo ("Syntax error: newline unexpected")
+    # — p. ej. DEFAULT_FROM_EMAIL="Kanban <kanban@dominio>". Se entrecomilla todo lo que no
+    # sea estrictamente seguro; docker compose y python-decouple leen ambas formas.
+    if value and not re.fullmatch(r"[A-Za-z0-9_.:/@%+,=-]*", value):
         value = "'" + value.replace("'", "'\\''") + "'"
     return f"{key}={value}"
 

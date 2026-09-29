@@ -529,6 +529,10 @@ def access_admin(request):
         'blocked': BlockedEmail.objects.filter(company=company),
         'blocked_form': BlockedEmailForm(company=company),
         'invite_form': InviteForm(viewer=request.user),
+        # SMTP global (EmailConfig): editable y probable desde acá solo por el superuser;
+        # el POST va a companies:email_config con next= de vuelta a esta página.
+        'email_config_form': _email_config_form(EmailConfig.load()) if request.user.is_superuser else None,
+        'email_source': _email_effective_source(EmailConfig.load()) if request.user.is_superuser else None,
     })
 
 
@@ -733,6 +737,39 @@ def _send_test_email(request, data):
         messages.error(request, f'No se pudo enviar el correo de prueba: {exc}')
 
 
+def _email_effective_source(config):
+    """Qué configuración de correo saliente está en uso AHORA: la de la base (esta
+    pantalla) si está activa con host, si no la del .env del servidor, y si tampoco hay
+    SMTP, la consola (solo desarrollo). Para mostrarlo en la pantalla de correo."""
+    if config.enabled and config.host:
+        return {'source': 'db', 'label': 'Esta configuración (base de datos)',
+                'host': config.host, 'port': config.port, 'user': config.username,
+                'from_email': config.from_email or settings.DEFAULT_FROM_EMAIL}
+    if getattr(settings, 'EMAIL_HOST', ''):
+        return {'source': 'env', 'label': 'Archivo .env del servidor',
+                'host': settings.EMAIL_HOST, 'port': settings.EMAIL_PORT,
+                'user': settings.EMAIL_HOST_USER, 'from_email': settings.DEFAULT_FROM_EMAIL}
+    return {'source': 'console', 'label': 'Consola (sin SMTP — solo desarrollo)',
+            'host': '', 'port': '', 'user': '', 'from_email': settings.DEFAULT_FROM_EMAIL}
+
+
+def _email_config_form(config, data=None):
+    """Form de EmailConfig. Si en la base no hay servidor cargado, se precargan los
+    valores SMTP del .env (host, puerto, TLS, usuario, remitente — la contraseña nunca)
+    para que el superuser vea qué hay configurado y pueda copiarlo/probarlo sin
+    tipearlo de nuevo. `enabled` queda apagado: probar sin activar usa el .env tal cual."""
+    initial = None
+    if not config.host and getattr(settings, 'EMAIL_HOST', ''):
+        initial = {
+            'host': settings.EMAIL_HOST, 'port': settings.EMAIL_PORT,
+            'use_tls': settings.EMAIL_USE_TLS, 'username': settings.EMAIL_HOST_USER,
+            'from_email': settings.DEFAULT_FROM_EMAIL,
+        }
+    if data is not None:
+        return EmailConfigForm(data, instance=config)
+    return EmailConfigForm(instance=config, initial=initial)
+
+
 @_superuser_required
 def email_config(request):
     """Config de correo GLOBAL (el SMTP es del servidor, no de cada empresa — el
@@ -741,23 +778,33 @@ def email_config(request):
     email (los mensajes de chat arrancan apagados — un chat activo es un correo por
     mensaje)."""
     config = EmailConfig.load()
-    form = EmailConfigForm(instance=config)
+    form = _email_config_form(config)
+    # `next`: la sección "Correo saliente" de Cuentas (/<slug>/acceso/admin/) postea acá
+    # y quiere volver allí — tanto al guardar como tras la prueba (los messages viajan
+    # en la sesión). Sin next, o con uno inválido, se queda en /empresas/correo/.
+    next_url = request.POST.get('next', '')
+    if not url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
+        next_url = ''
 
     if request.method == 'POST':
-        form = EmailConfigForm(request.POST, instance=config)
+        form = _email_config_form(config, request.POST)
         if request.POST.get('action') == 'test':
             if form.is_valid():
                 _send_test_email(request, form.cleaned_data)
+                if next_url:
+                    return redirect(next_url)
             else:
                 messages.error(request, 'Revisá los datos antes de probar el envío.')
         elif form.is_valid():
             form.save()
             messages.success(request, 'Configuración de correo actualizada.')
-            return redirect('companies:email_config')
+            return redirect(next_url or 'companies:email_config')
         else:
             messages.error(request, 'Revisá los datos.')
 
-    return render(request, 'accounts/email_config.html', {'form': form, 'config': config})
+    return render(request, 'accounts/email_config.html', {
+        'form': form, 'config': config, 'email_source': _email_effective_source(config),
+    })
 
 
 def branding_logo(request, variant):

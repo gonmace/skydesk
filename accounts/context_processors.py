@@ -18,6 +18,7 @@ def company_branding(request):
     if company is None:
         return {
             'current_company': None,
+            'product_name': DEFAULT_BRAND_NAME,
             'brand_name': DEFAULT_BRAND_NAME,
             'brand_logo_light_url': None,
             'brand_logo_dark_url': None,
@@ -33,6 +34,9 @@ def company_branding(request):
 
     return {
         'current_company': company,
+        # Nombre del producto, fijo: las pantallas de acceso lo muestran como título
+        # aunque la empresa tenga su propia marca (esa va debajo, como logo o texto).
+        'product_name': DEFAULT_BRAND_NAME,
         'brand_name': company.brand_name or DEFAULT_BRAND_NAME,
         'brand_logo_light_url': logo('light', company.logo_light),
         'brand_logo_dark_url': logo('dark', company.logo_dark or company.logo_light),
@@ -48,6 +52,10 @@ def nav_flags(request):
     if not user or not user.is_authenticated:
         return {}
     role = get_user_role(user)
+    # El superuser no tiene Profile (ni rol de empresa): sin esto el badge del header
+    # caía al default "Ejecutor". Se muestra como Administrador (color warning).
+    if user.is_superuser:
+        role = Role.ADMINISTRADOR
     company = getattr(request, 'company', None)
     # request.real_user lo cuelga DevImpersonationMiddleware cuando el superuser real
     # está impersonando a `user`. Si no existe, `user` ES el real.
