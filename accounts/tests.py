@@ -16,7 +16,7 @@ from core.testing import DEFAULT_SLUG, TenantTestCase as TestCase, default_compa
 
 from .access import is_email_allowed, resolve_default_role
 from .models import (
-    AllowedDomain, AllowedEmail, EmailConfig, NextcloudOAuthConfig,
+    AllowedDomain, AllowedEmail, BlockedEmail, Company, EmailConfig, NextcloudOAuthConfig,
     Profile, Role, RolePermission, UserPermission,
 )
 from .permissions import has_capability
@@ -34,6 +34,21 @@ OV = dict(
 
 
 class AllowListTests(TestCase):
+    def test_blocked_email_wins_over_allowed_domain_and_email(self):
+        c = default_company()
+        AllowedDomain.objects.create(company=c, domain='empresa.com')
+        AllowedEmail.objects.create(company=c, email='vip@empresa.com', default_role=Role.COORDINADOR)
+        BlockedEmail.objects.create(company=c, email='Ex@Empresa.com')     # se normaliza a minúsculas
+        BlockedEmail.objects.create(company=c, email='vip@empresa.com')
+        self.assertTrue(is_email_allowed(c, 'alguien@empresa.com'))
+        self.assertFalse(is_email_allowed(c, 'ex@empresa.com'))
+        self.assertFalse(is_email_allowed(c, 'EX@empresa.com'))
+        self.assertFalse(is_email_allowed(c, 'vip@empresa.com'))          # bloqueo gana a la excepción
+        # El bloqueo es por empresa.
+        other = Company.objects.create(name='Otra', slug='otra', ticket_prefix='OTR')
+        AllowedDomain.objects.create(company=other, domain='empresa.com')
+        self.assertTrue(is_email_allowed(other, 'ex@empresa.com'))
+
     def test_allowed_and_default_role(self):
         c = default_company()
         AllowedDomain.objects.create(company=c, domain='empresa.com', default_role=Role.EXPERTO)
@@ -221,6 +236,33 @@ class AccessAdminCoordinatorTests(TestCase):
         self.assertEqual(r.status_code, 302)
         self.ejec.refresh_from_db()
         self.assertFalse(self.ejec.is_active)
+
+    def test_block_email_then_invite_and_request_access_are_rejected(self):
+        AllowedDomain.objects.create(company=default_company(), domain='empresa.com')
+        self.client.force_login(self.coord)
+        r = self.client.post(reverse('accounts:access_admin'), {
+            'action': 'add_blocked', 'email': 'Ex@Empresa.com', 'note': 'se fue',
+        })
+        self.assertEqual(r.status_code, 302)
+        self.assertTrue(BlockedEmail.objects.filter(company=default_company(), email='ex@empresa.com').exists())
+        self.assertContains(self.client.get(reverse('accounts:access_admin')), 'ex@empresa.com')
+        # Invitarlo desde Cuentas no crea nada.
+        self.client.post(reverse('accounts:access_admin'), {
+            'action': 'invite', 'email': 'ex@empresa.com', 'role': Role.EJECUTOR,
+        })
+        self.assertFalse(User.objects.filter(email__iexact='ex@empresa.com').exists())
+        self.assertFalse(AllowedEmail.objects.filter(email='ex@empresa.com').exists())
+        # Desbloquear lo quita de la lista.
+        pk = BlockedEmail.objects.get(email='ex@empresa.com').pk
+        self.client.post(reverse('accounts:access_admin'), {'action': 'delete_blocked', 'id': pk})
+        self.assertFalse(BlockedEmail.objects.filter(pk=pk).exists())
+
+    def test_blocked_email_cannot_request_access(self):
+        AllowedDomain.objects.create(company=default_company(), domain='empresa.com')
+        BlockedEmail.objects.create(company=default_company(), email='ex@empresa.com')
+        self.client.logout()
+        self.client.post(reverse('accounts:request_access'), {'email': 'ex@empresa.com'})
+        self.assertFalse(User.objects.filter(email__iexact='ex@empresa.com').exists())
 
     def test_coordinator_cannot_invite_administrador(self):
         self.client.force_login(self.coord)

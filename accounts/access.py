@@ -1,6 +1,6 @@
 """Allow-list POR EMPRESA: decide qué correos pueden solicitar acceso a una empresa y
 con qué rol entran."""
-from .models import AllowedDomain, AllowedEmail, Role
+from .models import AllowedDomain, AllowedEmail, BlockedEmail, Role
 
 
 def _split_domain(email):
@@ -10,10 +10,21 @@ def _split_domain(email):
     return email, email.rsplit('@', 1)[1]
 
 
+def is_email_blocked(company, email):
+    """True si el correo está en la lista de bloqueados de `company` (gana sobre todo)."""
+    email, _ = _split_domain(email)
+    if company is None or not email:
+        return False
+    return BlockedEmail.objects.filter(company=company, email=email).exists()
+
+
 def is_email_allowed(company, email):
-    """True si el correo está habilitado en `company` por dominio o como excepción puntual."""
+    """True si el correo está habilitado en `company` por dominio o como excepción puntual,
+    y NO está bloqueado puntualmente (un dominio permitido puede tener correos negados)."""
     email, domain = _split_domain(email)
     if company is None or not domain:
+        return False
+    if is_email_blocked(company, email):
         return False
     if AllowedEmail.objects.filter(company=company, email=email, is_active=True).exists():
         return True

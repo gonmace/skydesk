@@ -269,6 +269,36 @@ class AllowedEmail(models.Model):
         return self.email
 
 
+class BlockedEmail(models.Model):
+    """Correo puntual NEGADO en la empresa aunque su dominio esté permitido: no puede
+    solicitar acceso, ni entrar por SSO Nextcloud, ni ser invitado. Gana sobre
+    AllowedDomain y AllowedEmail (ver access.is_email_allowed). No toca cuentas ya
+    activas: para eso está «desactivar» en Cuentas registradas."""
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name='blocked_emails')
+    email = models.EmailField('Correo')
+    note = models.CharField('Nota', max_length=255, blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True,
+        on_delete=models.SET_NULL, related_name='+',
+    )
+    created = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['email']
+        verbose_name = 'Correo bloqueado'
+        verbose_name_plural = 'Correos bloqueados'
+        constraints = [
+            models.UniqueConstraint(fields=['company', 'email'], name='accounts_blockedemail_company_email_uniq'),
+        ]
+
+    def save(self, *args, **kwargs):
+        self.email = self.email.strip().lower()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.email
+
+
 class Profile(models.Model):
     """Datos extra del usuario — su empresa y su rol en el sistema."""
     user = models.OneToOneField(

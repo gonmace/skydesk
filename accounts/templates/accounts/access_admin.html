@@ -92,6 +92,42 @@
     </div>
   </section>
 
+  <!-- Correos bloqueados -->
+  <section class="bg-base-100 rounded-2xl border border-base-300 p-5 lg:col-span-2">
+    <h2 class="text-sm font-bold mb-3">Correos bloqueados</h2>
+    <p class="text-xs text-base-content/50 mb-3">
+      Personas que NO pueden solicitar acceso ni ser invitadas aunque su dominio esté
+      permitido (por ejemplo, alguien que dejó la empresa pero conserva el correo). Gana
+      sobre dominios y correos permitidos. No afecta cuentas ya activas: para cortarles el
+      acceso, desactivalas en «Cuentas registradas».
+    </p>
+    <form method="post" class="flex flex-col sm:flex-row gap-2 mb-4">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="add_blocked">
+      <div class="flex-1">{{ blocked_form.email }}</div>
+      <div class="flex-1">{{ blocked_form.note }}</div>
+      <button class="btn btn-error btn-sm">Bloquear</button>
+    </form>
+    <div class="space-y-2">
+      {% for b in blocked %}
+        <div class="flex flex-wrap items-center gap-x-2 gap-y-1.5 py-2 border-b border-base-200 last:border-0">
+          <span class="text-sm flex-1 min-w-[10rem] break-words">{{ b.email }}</span>
+          {% if b.note %}<span class="text-xs text-base-content/50 truncate max-w-xs">{{ b.note }}</span>{% endif %}
+          <div class="flex items-center gap-1.5 ml-auto">
+            <span class="badge badge-sm badge-error">bloqueado</span>
+            <form method="post" class="inline" data-confirm="¿Desbloquear el correo {{ b.email }}?">{% csrf_token %}
+              <input type="hidden" name="action" value="delete_blocked">
+              <input type="hidden" name="id" value="{{ b.pk }}">
+              <button class="btn btn-ghost btn-xs" title="Quitar del bloqueo">✕</button>
+            </form>
+          </div>
+        </div>
+      {% empty %}
+        <p class="text-sm text-base-content/40">Sin correos bloqueados.</p>
+      {% endfor %}
+    </div>
+  </section>
+
   <!-- Invitar -->
   <section class="bg-base-100 rounded-2xl border border-base-300 p-5 lg:col-span-2">
     <h2 class="text-sm font-bold mb-3">Invitar a alguien</h2>

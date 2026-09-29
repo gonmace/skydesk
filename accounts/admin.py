@@ -2,8 +2,8 @@ from django.contrib import admin
 from django.core.exceptions import ValidationError
 
 from .models import (
-    AllowedDomain, AllowedEmail, Company, EmailConfig, NextcloudOAuthConfig, Profile,
-    RolePermission,
+    AllowedDomain, AllowedEmail, BlockedEmail, Company, EmailConfig, NextcloudOAuthConfig,
+    Profile, RolePermission,
 )
 
 
@@ -26,6 +26,13 @@ class AllowedDomainAdmin(admin.ModelAdmin):
 class AllowedEmailAdmin(admin.ModelAdmin):
     list_display = ('email', 'company', 'default_role', 'is_active', 'created')
     list_filter = ('company', 'is_active', 'default_role')
+    search_fields = ('email',)
+
+
+@admin.register(BlockedEmail)
+class BlockedEmailAdmin(admin.ModelAdmin):
+    list_display = ('email', 'company', 'note', 'created')
+    list_filter = ('company',)
     search_fields = ('email',)
 
 

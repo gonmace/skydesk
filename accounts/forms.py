@@ -5,7 +5,7 @@ from django.contrib.auth.forms import (
 )
 
 from .models import (
-    AllowedDomain, AllowedEmail, Company, EmailConfig, NextcloudOAuthConfig, Role,
+    AllowedDomain, AllowedEmail, BlockedEmail, Company, EmailConfig, NextcloudOAuthConfig, Role,
 )
 
 _INPUT = 'input input-bordered w-full'
@@ -318,6 +318,32 @@ class CompanyForm(forms.ModelForm):
 
     def clean_ticket_prefix(self):
         return (self.cleaned_data.get('ticket_prefix') or '').strip().upper()
+
+
+class BlockedEmailForm(forms.ModelForm):
+    """Correo negado en la empresa aunque su dominio esté permitido."""
+    class Meta:
+        model = BlockedEmail
+        fields = ('email', 'note')
+        widgets = {
+            'email': forms.EmailInput(attrs={'class': _INPUT, 'placeholder': 'persona@empresa.com'}),
+            'note': forms.TextInput(attrs={'class': _INPUT, 'placeholder': 'Motivo (opcional)'}),
+        }
+
+    def __init__(self, *args, company=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.company = company
+
+    def clean_email(self):
+        email = self.cleaned_data['email'].strip().lower()
+        if BlockedEmail.objects.filter(company=self.company, email=email).exists():
+            raise forms.ValidationError('Ese correo ya está bloqueado.')
+        return email
+
+    def save(self, commit=True):
+        if self.company is not None:
+            self.instance.company = self.company
+        return super().save(commit=commit)
 
 
 class AllowedEmailForm(forms.ModelForm):

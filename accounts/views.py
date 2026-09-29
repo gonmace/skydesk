@@ -26,14 +26,14 @@ from attachments.forms import NextcloudConfigForm
 from attachments.models import NextcloudConfig
 from core.mail import send_mail_async, send_mail_now
 
-from .access import is_email_allowed, resolve_default_role
+from .access import is_email_allowed, is_email_blocked, resolve_default_role
 from .forms import (
-    ActivationForm, AdminUserEditForm, AllowedDomainForm, AllowedEmailForm,
+    ActivationForm, AdminUserEditForm, AllowedDomainForm, AllowedEmailForm, BlockedEmailForm,
     EmailAuthenticationForm, EmailConfigForm, InviteForm,
     NextcloudOAuthConfigForm, ProfileNameForm, RequestAccessForm, role_choices_for,
 )
 from .models import (
-    AllowedDomain, AllowedEmail, EmailConfig, NextcloudOAuthConfig,
+    AllowedDomain, AllowedEmail, BlockedEmail, EmailConfig, NextcloudOAuthConfig,
     Profile, Role, RolePermission, UserPermission,
 )
 from .permissions import (
@@ -386,9 +386,34 @@ def access_admin(request):
                 messages.success(request, f'Correo «{obj.email}» agregado.')
             else:
                 messages.error(request, 'Revisá los datos del correo.')
+        elif action == 'add_blocked':
+            form = BlockedEmailForm(request.POST, company=company)
+            if form.is_valid():
+                obj = form.save(commit=False)
+                obj.created_by = request.user
+                obj.save()
+                messages.success(request, f'Correo «{obj.email}» bloqueado.')
+                if User.objects.filter(email__iexact=obj.email, is_active=True).filter(members_q(company)).exists():
+                    messages.warning(
+                        request,
+                        f'«{obj.email}» ya tiene una cuenta activa en esta empresa: el bloqueo solo '
+                        'impide nuevas solicitudes e invitaciones. Desactivá la cuenta si corresponde.',
+                    )
+            else:
+                messages.error(request, form.errors.get('email', ['Revisá el correo.'])[0])
+        elif action == 'delete_blocked':
+            obj = get_object_or_404(BlockedEmail, pk=request.POST.get('id'), company=company)
+            obj.delete()
+            messages.success(request, f'Correo «{obj.email}» desbloqueado.')
         elif action == 'invite':
             form = InviteForm(request.POST, viewer=request.user)
-            if form.is_valid():
+            if form.is_valid() and is_email_blocked(company, form.cleaned_data['email']):
+                messages.error(
+                    request,
+                    f'«{form.cleaned_data["email"]}» está en la lista de correos bloqueados; '
+                    'quitalo de ahí antes de invitarlo.',
+                )
+            elif form.is_valid():
                 email = form.cleaned_data['email']
                 role = form.cleaned_data['role']
                 try:
@@ -501,6 +526,8 @@ def access_admin(request):
         'users': Paginator(users_qs, 20).get_page(request.GET.get('page')),
         'domain_form': AllowedDomainForm(viewer=request.user, company=company),
         'email_form': AllowedEmailForm(viewer=request.user, company=company),
+        'blocked': BlockedEmail.objects.filter(company=company),
+        'blocked_form': BlockedEmailForm(company=company),
         'invite_form': InviteForm(viewer=request.user),
     })
 

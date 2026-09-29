@@ -76,7 +76,8 @@ Varias empresas en un mismo servidor, datos totalmente aislados. Modelo `account
   nunca comparando `profile.company` a mano. Selector "Cambiar de empresa" en el menú de
   usuario (`nav_companies`).
 - **Con FK `company`:** Profile, Project, Label, Ticket, Attachment (desnormalizado para
-  el borrado de blobs), AllowedDomain/AllowedEmail, RolePermission (matriz por empresa),
+  el borrado de blobs), AllowedDomain/AllowedEmail/BlockedEmail (bloqueo puntual que gana
+  al dominio permitido), RolePermission (matriz por empresa),
   NextcloudConfig + NextcloudOAuthConfig (uno por empresa: cada cliente su Nextcloud).
   `EmailConfig` (SMTP) sigue global; el remitente es por empresa (`Company.email_from*`).
 - **Reglas al escribir código:** filtrar SIEMPRE por `request.company` (helper
