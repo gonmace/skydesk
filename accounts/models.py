@@ -102,7 +102,7 @@ class Company(models.Model):
 
     # ── Marca ──
     brand_name = models.CharField(
-        'Nombre de marca', max_length=60, default='SkyDesk',
+        'Nombre de marca', max_length=60, default='Kanban',
         help_text='Título de la pestaña, pantalla de login y firma de los correos.',
     )
     logo_light = models.ImageField(
@@ -412,7 +412,7 @@ class EmailConfig(models.Model):
     password = models.CharField('Contraseña', max_length=500, blank=True)
     from_email = models.CharField(
         'Remitente', max_length=255, blank=True,
-        help_text='Ej. SkyDesk Tickets <noreply@dominio>. Vacío = el del servidor.',
+        help_text='Ej. Kanban Tickets <noreply@dominio>. Vacío = el del servidor.',
     )
     notify_assignment = models.BooleanField(
         'Enviar correo al asignar un ticket', default=True)

@@ -188,7 +188,7 @@ else:
         raise ValueError('EMAIL_HOST no está en .env y DEBUG=False. Configurá el SMTP para producción.')
     EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 
-DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='SkyDesk Tickets <noreply@example.com>')
+DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='Kanban Tickets <noreply@example.com>')
 
 # ── Adjuntos (almacenamiento intercambiable) ─────────────────────────────────
 # Hoy TODOS los adjuntos van a Nextcloud; la abstracción permite migrar a S3/CDN a futuro.

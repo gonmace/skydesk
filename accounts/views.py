@@ -69,7 +69,7 @@ def _company_required(view):
 
 def _brand(request):
     company = getattr(request, 'company', None)
-    return (company.brand_name if company is not None and company.brand_name else 'SkyDesk')
+    return (company.brand_name if company is not None and company.brand_name else 'Kanban')
 
 
 def _get_or_create_pending_user(email, company, role=''):
@@ -724,7 +724,7 @@ def _send_test_email(request, data):
         from_email = data['from_email'] or from_email
     try:
         send_mail(
-            'SkyDesk: correo de prueba',
+            'Kanban: correo de prueba',
             'Si estás leyendo esto, la configuración de correo saliente funciona.',
             from_email, [to], connection=connection, fail_silently=False,
         )

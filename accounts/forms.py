@@ -245,7 +245,7 @@ class EmailConfigForm(forms.ModelForm):
             'port': forms.NumberInput(attrs={'class': _INPUT, 'min': 1, 'max': 65535}),
             'use_tls': forms.CheckboxInput(attrs={'class': _CHECKBOX}),
             'username': forms.TextInput(attrs={'class': _INPUT, 'placeholder': 'usuario@dominio.com'}),
-            'from_email': forms.TextInput(attrs={'class': _INPUT, 'placeholder': 'SkyDesk Tickets <noreply@dominio>'}),
+            'from_email': forms.TextInput(attrs={'class': _INPUT, 'placeholder': 'Kanban Tickets <noreply@dominio>'}),
             'notify_assignment': forms.CheckboxInput(attrs={'class': _CHECKBOX}),
             'notify_comment': forms.CheckboxInput(attrs={'class': _CHECKBOX}),
         }

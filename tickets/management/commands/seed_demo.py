@@ -307,7 +307,7 @@ class Command(BaseCommand):
             ticket=t6, author=experto, body='Adjunto el reporte de queries lentas detectadas.',
         )
         attachment_services.store(
-            _fake_pdf('reporte-queries.pdf', 'Reporte de queries lentas — SkyDesk demo'),
+            _fake_pdf('reporte-queries.pdf', 'Reporte de queries lentas — Kanban demo'),
             owner=experto, content_object=c6, backend_name=ATTACHMENT_BACKEND,
         )
 
@@ -372,7 +372,7 @@ class Command(BaseCommand):
         assign(t12, ejecutor4, status=S.TODO)
         assign(t12, experto, kind=AK.EXPERTO, status=S.TODO)
         attachment_services.store(
-            _fake_pdf('informe-incidente.pdf', 'Informe preliminar del incidente — SkyDesk demo'),
+            _fake_pdf('informe-incidente.pdf', 'Informe preliminar del incidente — Kanban demo'),
             owner=coord, content_object=t12, backend_name=ATTACHMENT_BACKEND,
         )
         TicketEvent.objects.create(ticket=t12, actor=coord, kind='assignee', detail='actualizó las asignaciones')
@@ -437,7 +437,7 @@ class Command(BaseCommand):
         seg_notif = notify(seguimiento, 'se concluyó el ticket que seguías', actor=experto, ticket=t9)
         if seg_notif:
             Notification.objects.filter(pk=seg_notif.pk).update(is_read=True)
-        notify(coord, 'Bienvenido a SkyDesk')
+        notify(coord, 'Bienvenido a Kanban')
         notify(coord2, 'te mencionó en un comentario', actor=ejecutor)
         notify(ejecutor3, 'te asignó el ticket', actor=coord2, ticket=t14)
         notify(ejecutor4, 'comentó en tu ticket', actor=ejecutor3, ticket=t14)
@@ -446,7 +446,7 @@ class Command(BaseCommand):
         exp3_notif = notify(experto3, 'te consultó en el ticket', actor=coord, ticket=t6)
         if exp3_notif:
             Notification.objects.filter(pk=exp3_notif.pk).update(is_read=True)
-        notify(seguimiento2, 'Bienvenido a SkyDesk')
+        notify(seguimiento2, 'Bienvenido a Kanban')
 
         self.stdout.write(self.style.SUCCESS('Datos de demo cargados.'))
         self.stdout.write('')

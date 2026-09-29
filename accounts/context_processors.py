@@ -6,7 +6,7 @@ from .models import RACI_LETTER, Role
 from .permissions import get_user_role, has_capability
 from .tenancy import company_path, members_q, user_companies
 
-DEFAULT_BRAND_NAME = 'SkyDesk'
+DEFAULT_BRAND_NAME = 'Kanban'
 
 
 def company_branding(request):
