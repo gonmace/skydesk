@@ -5,6 +5,7 @@ from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 
+from core.testing import default_company, make_user
 from tickets.models import Project, Ticket
 
 from . import services
@@ -73,7 +74,7 @@ class ValidateTests(TestCase):
 class StoreTests(TestCase):
     def setUp(self):
         MemoryBackend.clear()
-        self.user = User.objects.create_user('u@e.com', 'u@e.com', 'x')
+        self.user = make_user('u@e.com')
         self.ticket = Ticket.objects.create(title='t', reporter=self.user)
 
     def test_store_open_delete(self):
@@ -100,7 +101,7 @@ class StoreTests(TestCase):
         self.assertTrue(att.storage_key.startswith(f'{self.ticket.key}_t/'))
 
     def test_key_is_ticket_key_and_title_flat_folder(self):
-        project = Project.objects.create(name='Torre Norte', code='TN')
+        project = Project.objects.create(company=default_company(), name='Torre Norte', code='TN')
         ticket = Ticket.objects.create(title='Instalación de cableado', reporter=self.user, project=project)
         att = services.store(SimpleUploadedFile('foto.png', png_bytes(), content_type='image/png'),
                              owner=self.user, content_object=ticket)
@@ -135,7 +136,7 @@ class CascadeDeleteTests(TestCase):
 
     def setUp(self):
         MemoryBackend.clear()
-        self.user = User.objects.create_user('u@e.com', 'u@e.com', 'x')
+        self.user = make_user('u@e.com')
         self.ticket = Ticket.objects.create(title='t', reporter=self.user)
 
     def test_cascade_delete_via_comment_removes_blob(self):
@@ -179,22 +180,27 @@ class CascadeDeleteTests(TestCase):
             'token': 'envtoken', 'root': 'EnvRoot',
         },
     },
+    'local': {'BACKEND': 'attachments.backends.local.LocalDiskBackend', 'OPTIONS': {}},
 })
 class NextcloudConfigOverrideTests(TestCase):
-    """La config de BD (superuser) pisa a la de .env solo cuando está `enabled`."""
+    """La config de BD de la EMPRESA (superuser) pisa a la de .env solo cuando está
+    `enabled`; sin empresa (comandos globales, tests) se usa la de .env tal cual."""
 
-    def test_env_config_used_when_no_db_row(self):
+    def test_env_config_used_when_no_company_or_disabled_row(self):
         backend = get_backend('nextcloud')
         self.assertEqual(backend.base_url, 'https://env.example/dav')
         self.assertEqual(backend.user, 'envuser')
+        # La fila de la empresa existe (la crea la data migration) pero está apagada.
+        backend = get_backend('nextcloud', company=default_company())
+        self.assertEqual(backend.base_url, 'https://env.example/dav')
 
     def test_db_config_overrides_when_enabled(self):
         from .models import NextcloudConfig
-        NextcloudConfig.objects.create(
-            pk=1, enabled=True, base_url='https://db.example/dav',
+        NextcloudConfig.objects.filter(company=default_company()).update(
+            enabled=True, base_url='https://db.example/dav',
             user='dbuser', token='dbtoken', root='DbRoot',
         )
-        backend = get_backend('nextcloud')
+        backend = get_backend('nextcloud', company=default_company())
         self.assertEqual(backend.base_url, 'https://db.example/dav')
         self.assertEqual(backend.user, 'dbuser')
         self.assertEqual(backend.token, 'dbtoken')
@@ -202,8 +208,27 @@ class NextcloudConfigOverrideTests(TestCase):
 
     def test_disabled_db_row_is_ignored(self):
         from .models import NextcloudConfig
-        NextcloudConfig.objects.create(
-            pk=1, enabled=False, base_url='https://db.example/dav', user='dbuser', token='dbtoken',
+        NextcloudConfig.objects.filter(company=default_company()).update(
+            enabled=False, base_url='https://db.example/dav', user='dbuser', token='dbtoken',
         )
-        backend = get_backend('nextcloud')
+        backend = get_backend('nextcloud', company=default_company())
         self.assertEqual(backend.base_url, 'https://env.example/dav')
+
+    def test_other_company_config_does_not_leak(self):
+        from accounts.services import create_company
+        from .models import NextcloudConfig
+        other = create_company(name='Otra', slug='otra', ticket_prefix='OTRA')
+        NextcloudConfig.objects.filter(company=other).update(
+            enabled=True, base_url='https://otra.example/dav', user='otra', token='t',
+        )
+        backend = get_backend('nextcloud', company=default_company())
+        self.assertEqual(backend.base_url, 'https://env.example/dav')
+        self.assertEqual(get_backend('nextcloud', company=other).base_url, 'https://otra.example/dav')
+
+    def test_local_backend_isolates_companies_by_folder(self):
+        from accounts.services import create_company
+        other = create_company(name='Otra2', slug='otra2', ticket_prefix='OTRB')
+        a = get_backend('local', company=default_company())
+        b = get_backend('local', company=other)
+        self.assertNotEqual(a.base_path, b.base_path)
+        self.assertTrue(a.base_path.endswith('/embol'))

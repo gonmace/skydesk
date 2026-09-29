@@ -1,6 +1,6 @@
 """Backend de almacenamiento sobre Nextcloud vía WebDAV (basic-auth con app-password).
 
-La `key` es una ruta legible bajo `root` (ej. ``SKY-12/foto.jpg``), de modo que los
+La `key` es una ruta legible bajo `root` (ej. ``EMBOL-0012_Título/foto.jpg``), de modo que los
 archivos también se pueden navegar/abrir directamente desde la web/cliente de Nextcloud.
 """
 from urllib.parse import quote

@@ -1,0 +1,63 @@
+{% extends 'tickets/base_app.html' %}
+{% block title %}Empresas{% endblock %}
+
+{% block app_content %}
+<div class="max-w-5xl">
+  <div class="flex items-start justify-between gap-4 mb-4">
+    <div>
+      <h1 class="text-2xl font-black tracking-tight mb-1">Empresas</h1>
+      <p class="text-sm text-base-content/50">
+        Cada empresa es un espacio totalmente separado: sus usuarios, tickets, proyectos, roles y marca.
+        Se entra por <code>/&lt;identificador&gt;/</code>. Solo el superuser ve esta página.
+      </p>
+    </div>
+    <div class="flex gap-2 shrink-0">
+      <a href="{% url 'companies:email_config' %}" class="btn btn-ghost btn-sm">Correo (SMTP)</a>
+      <a href="{% url 'companies:create' %}" class="btn btn-success btn-sm">+ Empresa</a>
+    </div>
+  </div>
+
+  <div class="bg-base-100 rounded-2xl border border-base-300 overflow-x-auto">
+    <table class="table table-sm">
+      <thead>
+        <tr>
+          <th>Empresa</th>
+          <th>URL</th>
+          <th>Prefijo</th>
+          <th class="text-right">Usuarios</th>
+          <th class="text-right">Tickets</th>
+          <th>Estado</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in companies %}
+          <tr class="{% if not c.is_active %}opacity-50{% endif %}">
+            <td class="font-semibold">
+              {{ c.name }}
+              {% if c.brand_name and c.brand_name != c.name %}<span class="text-xs text-base-content/50 font-normal">· marca «{{ c.brand_name }}»</span>{% endif %}
+            </td>
+            <td><code class="text-xs">/{{ c.slug }}/</code></td>
+            <td><code class="text-xs">{{ c.ticket_prefix }}-{{ c.ticket_seq|stringformat:"04d" }}</code></td>
+            <td class="text-right">{{ c.num_users }}{% if c.num_extra_users %} <span class="text-xs text-base-content/50" title="Usuarios de otras empresas con acceso">+{{ c.num_extra_users }}</span>{% endif %}</td>
+            <td class="text-right">{{ c.num_tickets }}</td>
+            <td>
+              {% if c.is_active %}<span class="badge badge-success badge-sm">Activa</span>
+              {% else %}<span class="badge badge-ghost badge-sm">Inactiva</span>{% endif %}
+            </td>
+            <td class="text-right whitespace-nowrap">
+              <a href="/{{ c.slug }}/" class="btn btn-ghost btn-xs">Entrar</a>
+              <a href="/{{ c.slug }}/acceso/admin/" class="btn btn-ghost btn-xs">Cuentas</a>
+              <a href="/{{ c.slug }}/acceso/roles/" class="btn btn-ghost btn-xs">Roles</a>
+              <a href="/{{ c.slug }}/acceso/nextcloud/" class="btn btn-ghost btn-xs">Nextcloud</a>
+              <a href="{% url 'companies:edit' c.slug %}" class="btn btn-primary btn-xs">Editar</a>
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="7" class="text-center text-base-content/50 py-6">Todavía no hay empresas.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

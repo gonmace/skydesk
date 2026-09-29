@@ -31,12 +31,15 @@ Modelo: `attachments.NextcloudConfig` (una sola fila, editable en la UI). Si `en
 
 ## 2. Login SSO (OAuth2)
 
-Modelo: `accounts.NextcloudOAuthConfig` (una sola fila, editable en la UI). Flujo authorization-code server-side (`accounts/views.py`: `nextcloud_login` / `nextcloud_callback`), gateado por la misma allow-list del onboarding normal (`accounts.access.is_email_allowed`).
+Modelo: `accounts.NextcloudOAuthConfig` (una fila POR EMPRESA, editable en la UI en `/<slug>/acceso/nextcloud/`). Flujo authorization-code server-side (`accounts/views.py`: `nextcloud_login` / `nextcloud_callback`), gateado por la misma allow-list del onboarding normal (`accounts.access.is_email_allowed`).
 
 ### Crear el cliente OAuth2 en Nextcloud
 
 `Settings → Administration → Security → OAuth 2.0 clients` → agregar cliente nuevo con:
-- **Redirection URI**: `https://skydesk.redlinegs.com/acceso/nextcloud/callback/`
+- **Redirection URI**: `https://skydesk.redlinegs.com/<slug-empresa>/acceso/nextcloud/callback/`
+  (multi-empresa: el prefijo de la empresa forma parte de la URL, ej. `/embol/acceso/nextcloud/callback/`;
+  cada empresa registra su propia app OAuth2 en SU Nextcloud y la configura el superuser en
+  `/<slug>/acceso/nextcloud/`)
   (ojo: el prefijo es `/acceso/`, la app `accounts` está montada ahí — `core/urls.py`)
 
 Nextcloud entrega un **Client ID** y **Client secret**.

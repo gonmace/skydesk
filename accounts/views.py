@@ -8,11 +8,11 @@ from django.contrib import messages
 from django.contrib.auth import get_user_model, login
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.tokens import default_token_generator
-from django.contrib.auth.views import LoginView, redirect_to_login
+from django.contrib.auth.views import LoginView, PasswordResetView, redirect_to_login
 from django.core.cache import cache
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
-from django.http import FileResponse, Http404, JsonResponse
+from django.http import FileResponse, Http404, HttpResponse, HttpResponseNotModified, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
 from django.urls import reverse
@@ -29,17 +29,18 @@ from core.mail import send_mail_async, send_mail_now
 from .access import is_email_allowed, resolve_default_role
 from .forms import (
     ActivationForm, AdminUserEditForm, AllowedDomainForm, AllowedEmailForm,
-    BrandingConfigForm, EmailAuthenticationForm, EmailConfigForm, InviteForm,
+    EmailAuthenticationForm, EmailConfigForm, InviteForm,
     NextcloudOAuthConfigForm, ProfileNameForm, RequestAccessForm, role_choices_for,
 )
 from .models import (
-    AllowedDomain, AllowedEmail, BrandingConfig, EmailConfig, NextcloudOAuthConfig,
+    AllowedDomain, AllowedEmail, EmailConfig, NextcloudOAuthConfig,
     Profile, Role, RolePermission, UserPermission,
 )
 from .permissions import (
     CAPABILITIES, DEFAULT_ROLE_CAPS, INDIVIDUAL_OVERRIDE_ROLES, get_user_role,
     has_capability,
 )
+from .tenancy import company_path, get_user_company, is_member, members_q
 
 User = get_user_model()
 
@@ -51,31 +52,72 @@ NEUTRAL_MSG = (
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _get_or_create_pending_user(email, role=''):
-    """Obtiene/crea un usuario inactivo para el correo. Si se pasa rol, fija el Profile."""
+class OtherCompanyError(Exception):
+    """El correo ya pertenece a un usuario de OTRA empresa (un email = una empresa)."""
+
+
+def _company_required(view):
+    """Vistas que solo tienen sentido dentro de una empresa (`/<slug>/acceso/...`):
+    sin prefijo no hay a qué empresa solicitar acceso, ni qué allow-list consultar."""
+    @wraps(view)
+    def wrapped(request, *args, **kwargs):
+        if getattr(request, 'company', None) is None:
+            raise Http404
+        return view(request, *args, **kwargs)
+    return wrapped
+
+
+def _brand(request):
+    company = getattr(request, 'company', None)
+    return (company.brand_name if company is not None and company.brand_name else 'SkyDesk')
+
+
+def _get_or_create_pending_user(email, company, role=''):
+    """Obtiene/crea un usuario inactivo para el correo dentro de `company`. Si se pasa
+    rol, fija el Profile (con la empresa). Un correo que ya es de otra empresa no se
+    puede reutilizar: OtherCompanyError — salvo que el superuser ya lo haya sumado como
+    miembro adicional de esta empresa (/empresas/), en cuyo caso solo se ajusta el rol
+    (global) sin tocar su empresa principal."""
     user = User.objects.filter(email__iexact=email).first()
     if user is None:
         user = User.objects.create(username=email[:150], email=email, is_active=False)
         user.set_unusable_password()
         user.save()
+    profile = Profile.objects.filter(user=user).first()
+    if user.is_superuser:
+        raise OtherCompanyError(email)
+    if profile is not None and profile.company_id and profile.company_id != company.pk:
+        if not is_member(user, company):
+            raise OtherCompanyError(email)
+        if role and profile.role != role:
+            profile.role = role
+            profile.save(update_fields=['role'])
+        return user
     if role:
-        Profile.objects.update_or_create(user=user, defaults={'role': role})
+        Profile.objects.update_or_create(user=user, defaults={'role': role, 'company': company})
+    elif profile is not None and profile.company_id is None:
+        profile.company = company
+        profile.save(update_fields=['company'])
     return user
 
 
 def _send_activation_email(request, user, sync=False):
     """Manda el correo de activación. `sync=True` lo envía en el request y propaga
     cualquier error de SMTP (usado en `request_access`, donde el usuario espera ver
-    si el envío funcionó); si no, se manda en segundo plano como el resto de la app."""
+    si el envío funcionó); si no, se manda en segundo plano como el resto de la app.
+    El link lleva el prefijo de la empresa (reverse() dentro del request prefijado)."""
     uid = urlsafe_base64_encode(force_bytes(user.pk))
     token = default_token_generator.make_token(user)
     link = request.build_absolute_uri(reverse('accounts:activate', args=[uid, token]))
-    body = render_to_string('accounts/emails/activation.txt', {'user': user, 'link': link})
-    subject = 'Activá tu cuenta — SkyDesk Tickets'
+    brand = _brand(request)
+    body = render_to_string('accounts/emails/activation.txt', {
+        'user': user, 'link': link, 'brand_name': brand,
+    })
+    subject = f'Activá tu cuenta — {brand}'
     if sync:
-        send_mail_now(subject, body, [user.email])
+        send_mail_now(subject, body, [user.email], company=request.company)
     else:
-        send_mail_async(subject, body, [user.email])
+        send_mail_async(subject, body, [user.email], company=request.company)
 
 
 def _superuser_required(view):
@@ -154,7 +196,7 @@ def _process_access_request(request, email):
     confirma explícitamente y se intenta el envío en el momento (sync) para poder
     mostrar el error real de SMTP en vez de tragarlo en el log."""
     _access_throttle_bump_ip(request)  # el tope por IP corre siempre, esté o no habilitado
-    if not is_email_allowed(email):
+    if not is_email_allowed(request.company, email):
         return {'ok': True, 'messages': [{'text': NEUTRAL_MSG, 'tag': 'info'}]}
 
     if _access_throttle_check(request, email) != 'ok':
@@ -165,7 +207,11 @@ def _process_access_request(request, email):
 
     # Solo se envía activación a cuentas que NUNCA activaron (sin contraseña usable):
     # así un usuario dado de baja no puede reactivarse solo.
-    user = _get_or_create_pending_user(email)
+    try:
+        user = _get_or_create_pending_user(email, request.company)
+    except OtherCompanyError:
+        # Mismo mensaje neutro: no revelar que el correo existe en otra empresa.
+        return {'ok': True, 'messages': [{'text': NEUTRAL_MSG, 'tag': 'info'}]}
     if user.is_active or user.has_usable_password():
         return {'ok': True, 'messages': [{
             'text': 'Esa cuenta ya está activa. Iniciá sesión.', 'tag': 'info',
@@ -194,6 +240,7 @@ _MESSAGE_LEVEL = {
 
 # ── Onboarding ──────────────────────────────────────────────────────────────
 
+@_company_required
 def request_access(request):
     if request.user.is_authenticated:
         return redirect('tickets:board')
@@ -231,18 +278,33 @@ def activate(request, uidb64, token):
     if not valid:
         return render(request, 'accounts/activate.html', {'invalid': True})
 
+    # Empresa de la cuenta: la del Profile (invitación) o la del prefijo del link
+    # (solicitud de acceso). Un link de una empresa de la que no es miembro no activa nada.
+    profile = Profile.objects.filter(user=user).first()
+    company = profile.company if (profile is not None and profile.company_id) else request.company
+    if company is None:
+        return render(request, 'accounts/activate.html', {'invalid': True})
+    if request.company is not None and request.company.pk != company.pk:
+        if not is_member(user, request.company):
+            return render(request, 'accounts/activate.html', {'invalid': True})
+        company = request.company
+
     if request.method == 'POST':
         form = ActivationForm(user, request.POST)
         if form.is_valid():
             form.save()
             user.is_active = True
             user.save(update_fields=['is_active'])
-            Profile.objects.get_or_create(
-                user=user, defaults={'role': resolve_default_role(user.email)},
+            profile, _ = Profile.objects.get_or_create(
+                user=user,
+                defaults={'role': resolve_default_role(company, user.email), 'company': company},
             )
+            if profile.company_id is None:
+                profile.company = company
+                profile.save(update_fields=['company'])
             login(request, user, backend='accounts.backends.EmailBackend')
             messages.success(request, '¡Cuenta activada! Bienvenido/a.')
-            return redirect('tickets:board')
+            return redirect(company_path(company, 'tickets:board'))
     else:
         form = ActivationForm(user)
     return render(request, 'accounts/activate.html', {'form': form, 'invalid': False, 'email': user.email})
@@ -261,6 +323,15 @@ def profile(request):
     return render(request, 'accounts/profile.html', {'form': form})
 
 
+class BrandedPasswordResetView(PasswordResetView):
+    """PasswordResetView con la marca de la empresa del prefijo en el asunto/firma del
+    correo (el `{% url %}` del cuerpo ya sale prefijado por ser reverse() en request)."""
+
+    def form_valid(self, form):
+        self.extra_email_context = {**(self.extra_email_context or {}), 'brand_name': _brand(self.request)}
+        return super().form_valid(form)
+
+
 class CustomLoginView(LoginView):
     template_name = 'accounts/login.html'
     authentication_form = EmailAuthenticationForm
@@ -268,7 +339,12 @@ class CustomLoginView(LoginView):
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        ctx['nextcloud_login_enabled'] = NextcloudOAuthConfig.load().enabled
+        company = getattr(self.request, 'company', None)
+        ctx['nextcloud_login_enabled'] = bool(company) and NextcloudOAuthConfig.objects.filter(
+            company=company, enabled=True).exists()
+        # Sin prefijo de empresa no hay a quién pedirle acceso: el login genérico es
+        # para el superuser (y para quien llegue sin saber su empresa).
+        ctx['show_request_access'] = company is not None
         return ctx
 
     def form_valid(self, form):
@@ -278,14 +354,22 @@ class CustomLoginView(LoginView):
         return response
 
 
-# ── Allow-list (solo superuser) ──────────────────────────────────────────────
+# ── Allow-list y cuentas (por empresa) ───────────────────────────────────────
 
+def _company_user_or_404(request, pk):
+    """Usuario miembro (principal o adicional) de la empresa del request (los superusers
+    no tienen empresa: nunca aparecen acá, ni siquiera para otro superuser)."""
+    return get_object_or_404(User.objects.filter(members_q(request.company)).distinct(), pk=pk)
+
+
+@_company_required
 @_accounts_manager_required
 def access_admin(request):
+    company = request.company
     if request.method == 'POST':
         action = request.POST.get('action')
         if action == 'add_domain':
-            form = AllowedDomainForm(request.POST, viewer=request.user)
+            form = AllowedDomainForm(request.POST, viewer=request.user, company=company)
             if form.is_valid():
                 obj = form.save(commit=False)
                 obj.created_by = request.user
@@ -294,7 +378,7 @@ def access_admin(request):
             else:
                 messages.error(request, 'Revisá los datos del dominio.')
         elif action == 'add_email':
-            form = AllowedEmailForm(request.POST, viewer=request.user)
+            form = AllowedEmailForm(request.POST, viewer=request.user, company=company)
             if form.is_valid():
                 obj = form.save(commit=False)
                 obj.created_by = request.user
@@ -307,34 +391,38 @@ def access_admin(request):
             if form.is_valid():
                 email = form.cleaned_data['email']
                 role = form.cleaned_data['role']
-                AllowedEmail.objects.update_or_create(
-                    email=email,
-                    defaults={'default_role': role, 'is_active': True, 'created_by': request.user},
-                )
-                user = _get_or_create_pending_user(email, role=role)
-                if user.is_active:
-                    messages.info(request, f'«{email}» ya tiene cuenta activa.')
+                try:
+                    user = _get_or_create_pending_user(email, company, role=role)
+                except OtherCompanyError:
+                    messages.error(request, f'«{email}» ya tiene cuenta en otra empresa.')
                 else:
-                    _send_activation_email(request, user)
-                    messages.success(request, f'Invitación enviada a «{email}».')
+                    AllowedEmail.objects.update_or_create(
+                        company=company, email=email,
+                        defaults={'default_role': role, 'is_active': True, 'created_by': request.user},
+                    )
+                    if user.is_active:
+                        messages.info(request, f'«{email}» ya tiene cuenta activa.')
+                    else:
+                        _send_activation_email(request, user)
+                        messages.success(request, f'Invitación enviada a «{email}».')
             else:
                 messages.error(request, 'Correo inválido para invitar.')
         elif action == 'toggle_domain':
-            obj = get_object_or_404(AllowedDomain, pk=request.POST.get('id'))
+            obj = get_object_or_404(AllowedDomain, pk=request.POST.get('id'), company=company)
             obj.is_active = not obj.is_active
             obj.save(update_fields=['is_active'])
         elif action == 'toggle_email':
-            obj = get_object_or_404(AllowedEmail, pk=request.POST.get('id'))
+            obj = get_object_or_404(AllowedEmail, pk=request.POST.get('id'), company=company)
             obj.is_active = not obj.is_active
             obj.save(update_fields=['is_active'])
         elif action == 'delete_domain':
-            get_object_or_404(AllowedDomain, pk=request.POST.get('id')).delete()
+            get_object_or_404(AllowedDomain, pk=request.POST.get('id'), company=company).delete()
             messages.success(request, 'Dominio eliminado.')
         elif action == 'delete_email':
-            get_object_or_404(AllowedEmail, pk=request.POST.get('id')).delete()
+            get_object_or_404(AllowedEmail, pk=request.POST.get('id'), company=company).delete()
             messages.success(request, 'Correo eliminado.')
         elif action == 'set_email_role':
-            obj = get_object_or_404(AllowedEmail, pk=request.POST.get('id'))
+            obj = get_object_or_404(AllowedEmail, pk=request.POST.get('id'), company=company)
             role = request.POST.get('default_role', '')
             # role_choices_for: para un no-superuser, ADMINISTRADOR no es un rol válido.
             if role and role not in dict(role_choices_for(request.user)):
@@ -344,7 +432,7 @@ def access_admin(request):
                 obj.save(update_fields=['default_role'])
                 messages.success(request, f'Rol de «{obj.email}» actualizado.')
         elif action == 'toggle_user':
-            target = get_object_or_404(User, pk=request.POST.get('id'))
+            target = _company_user_or_404(request, request.POST.get('id'))
             if not _can_manage_target(request.user, target):
                 raise PermissionDenied
             if target.pk == request.user.pk or target.is_superuser:
@@ -363,7 +451,7 @@ def access_admin(request):
                 estado = 'activado' if target.is_active else 'desactivado'
                 messages.success(request, f'Usuario «{target.email or target.username}» {estado}.')
         elif action == 'resend_invite':
-            target = get_object_or_404(User, pk=request.POST.get('id'))
+            target = _company_user_or_404(request, request.POST.get('id'))
             if not _can_manage_target(request.user, target):
                 raise PermissionDenied
             if target.is_active:
@@ -372,7 +460,7 @@ def access_admin(request):
                 _send_activation_email(request, target)
                 messages.success(request, f'Invitación reenviada a «{target.email}».')
         elif action == 'delete_user':
-            target = get_object_or_404(User, pk=request.POST.get('id'))
+            target = _company_user_or_404(request, request.POST.get('id'))
             if not _can_manage_target(request.user, target):
                 raise PermissionDenied
             label = target.email or target.username
@@ -395,9 +483,10 @@ def access_admin(request):
             return JsonResponse({'message': str(last) if last else '', 'tag': last.tags if last else ''})
         return redirect('accounts:access_admin')
 
-    users_qs = User.objects.select_related('profile').order_by('is_active', 'email')
-    domains = AllowedDomain.objects.all()
-    emails = AllowedEmail.objects.all()
+    users_qs = (User.objects.filter(members_q(company)).distinct()
+                .select_related('profile__company').order_by('is_active', 'email'))
+    domains = AllowedDomain.objects.filter(company=company)
+    emails = AllowedEmail.objects.filter(company=company)
     if not request.user.is_superuser:
         # Para el coordinador con accounts.manage, los superusers y el rol
         # ADMINISTRADOR (espía solo-lectura) no existen: ni en el listado de cuentas
@@ -410,15 +499,16 @@ def access_admin(request):
         'emails': emails,
         'role_choices': role_choices_for(request.user),
         'users': Paginator(users_qs, 20).get_page(request.GET.get('page')),
-        'domain_form': AllowedDomainForm(viewer=request.user),
-        'email_form': AllowedEmailForm(viewer=request.user),
+        'domain_form': AllowedDomainForm(viewer=request.user, company=company),
+        'email_form': AllowedEmailForm(viewer=request.user, company=company),
         'invite_form': InviteForm(viewer=request.user),
     })
 
 
+@_company_required
 @_accounts_manager_required
 def user_edit(request, pk):
-    target = get_object_or_404(User, pk=pk)
+    target = _company_user_or_404(request, pk)
     if not _can_manage_target(request.user, target):
         raise PermissionDenied
     if request.method == 'POST':
@@ -465,7 +555,8 @@ def user_edit(request, pk):
     if show_overrides:
         overrides = {up.capability: up.enabled for up in UserPermission.objects.filter(user=target)}
         role_defaults = {
-            rp.capability: rp.enabled for rp in RolePermission.objects.filter(role=target_role)
+            rp.capability: rp.enabled
+            for rp in RolePermission.objects.filter(company=request.company, role=target_role)
         }
         for cap_key, cap_label in CAPABILITIES:
             permission_rows.append({
@@ -483,8 +574,10 @@ def user_edit(request, pk):
     })
 
 
+@_company_required
 @_superuser_required
 def roles_board(request):
+    """Matriz rol × capacidad DE ESTA EMPRESA (cada cliente tiene la suya)."""
     roles = Role.choices  # [(value, label), ...]
 
     if request.method == 'POST':
@@ -494,7 +587,8 @@ def roles_board(request):
                 for cap_key, _label in CAPABILITIES:
                     enabled = request.POST.get(f'{role_value}:{cap_key}') == 'on'
                     RolePermission.objects.update_or_create(
-                        role=role_value, capability=cap_key, defaults={'enabled': enabled},
+                        company=request.company, role=role_value, capability=cap_key,
+                        defaults={'enabled': enabled},
                     )
             messages.success(request, 'Permisos actualizados.')
         return redirect('accounts:roles_board')
@@ -502,7 +596,7 @@ def roles_board(request):
     # Matriz actual {(role, cap): enabled}
     current = {
         (rp.role, rp.capability): rp.enabled
-        for rp in RolePermission.objects.all()
+        for rp in RolePermission.objects.filter(company=request.company)
     }
     matrix = []
     for cap_key, cap_label in CAPABILITIES:
@@ -521,13 +615,14 @@ def roles_board(request):
     })
 
 
+@_company_required
 @_superuser_required
 def nextcloud_config(request):
-    """Config de Nextcloud editable solo por el superuser: dos tarjetas independientes —
-    storage WebDAV (pisa a la de .env si `enabled`) y login OAuth2 (credenciales de
-    naturaleza distinta, ver NextcloudOAuthConfig)."""
-    config = NextcloudConfig.load()
-    oauth_config = NextcloudOAuthConfig.load()
+    """Config de Nextcloud DE ESTA EMPRESA, editable solo por el superuser: dos tarjetas
+    independientes — storage WebDAV (pisa a la de .env si `enabled`) y login OAuth2
+    (credenciales de naturaleza distinta, ver NextcloudOAuthConfig)."""
+    config = NextcloudConfig.for_company(request.company)
+    oauth_config = NextcloudOAuthConfig.for_company(request.company)
     form = NextcloudConfigForm(instance=config)
     oauth_form = NextcloudOAuthConfigForm(instance=oauth_config)
 
@@ -613,9 +708,11 @@ def _send_test_email(request, data):
 
 @_superuser_required
 def email_config(request):
-    """Config de correo editable solo por el superuser: SMTP (pisa al .env si
-    `enabled`, patrón NextcloudConfig) + qué eventos mandan email (los mensajes de
-    chat arrancan apagados — un chat activo es un correo por mensaje)."""
+    """Config de correo GLOBAL (el SMTP es del servidor, no de cada empresa — el
+    remitente por empresa vive en Company), editable solo por el superuser desde el
+    panel /empresas/correo/: SMTP (pisa al .env si `enabled`) + qué eventos mandan
+    email (los mensajes de chat arrancan apagados — un chat activo es un correo por
+    mensaje)."""
     config = EmailConfig.load()
     form = EmailConfigForm(instance=config)
 
@@ -629,56 +726,100 @@ def email_config(request):
         elif form.is_valid():
             form.save()
             messages.success(request, 'Configuración de correo actualizada.')
-            return redirect('accounts:email_config')
+            return redirect('companies:email_config')
         else:
             messages.error(request, 'Revisá los datos.')
 
     return render(request, 'accounts/email_config.html', {'form': form, 'config': config})
 
 
-@_superuser_required
-def branding_config(request):
-    """Logo de la app (arriba a la izquierda) editable solo por el superuser. Cada
-    variante (claro/oscuro) tiene su checkbox nativo de «Clear» para volver al logo
-    por defecto de SkyDesk."""
-    config = BrandingConfig.load()
-    form = BrandingConfigForm(instance=config)
-
-    if request.method == 'POST':
-        form = BrandingConfigForm(request.POST, request.FILES, instance=config)
-        if form.is_valid():
-            form.save()
-            messages.success(request, 'Logo actualizado.')
-            return redirect('accounts:branding_config')
-        else:
-            messages.error(request, 'Revisá el archivo (formato de imagen, máx. 2 MB).')
-
-    return render(request, 'accounts/branding_config.html', {'form': form, 'config': config})
-
-
 def branding_logo(request, variant):
-    """Sirve el logo subido por el superuser. No usa la URL de MEDIA_ROOT porque nginx
-    no expone `/media/` en producción (ver el comentario en `nginx.conf`); acá el
-    request ya pasó por nginx `location /` hasta Django, así que sirve en cualquier
-    entorno sin configuración adicional. Público (sin login): es solo el logo del
-    header, no hay nada sensible que proteger. Si no hay logo oscuro propio pero sí
-    claro, el oscuro cae al claro (mismo criterio que `nav_flags`)."""
-    config = BrandingConfig.load()
-    field = config.logo_dark if (variant == 'dark' and config.logo_dark) else config.logo_light
-    if variant not in ('light', 'dark') or not field:
+    """Sirve el logo/favicon de la empresa del request. No usa la URL de MEDIA_ROOT
+    porque nginx no expone `/media/` en producción (ver el comentario en `nginx.conf`);
+    acá el request ya pasó por nginx `location /` hasta Django, así que sirve en
+    cualquier entorno sin configuración adicional. Público (sin login): es solo la
+    marca del header/login, no hay nada sensible que proteger. Si no hay logo oscuro
+    propio pero sí claro, el oscuro cae al claro (mismo criterio que
+    `company_branding`)."""
+    company = getattr(request, 'company', None)
+    if company is None or variant not in ('light', 'dark', 'favicon'):
+        raise Http404
+    if variant == 'favicon':
+        field = company.favicon
+    else:
+        field = company.logo_dark if (variant == 'dark' and company.logo_dark) else company.logo_light
+    if not field:
         raise Http404
     response = FileResponse(field.open('rb'))  # FileResponse adivina el content-type por la extensión
+    response['Cache-Control'] = 'public, max-age=300'
+    # Por si alguien abre el archivo directo: que nunca corra como documento del origen.
+    response['Content-Security-Policy'] = 'sandbox'
+    return response
+
+
+def _hex_to_rgb(value):
+    value = value.lstrip('#')
+    return tuple(int(value[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def _contrast_text(hex_color):
+    """Blanco o casi-negro según la luminancia relativa (WCAG) del color de fondo —
+    para `--color-primary-content` y compañía."""
+    def channel(c):
+        c = c / 255
+        return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+    r, g, b = (channel(x) for x in _hex_to_rgb(hex_color))
+    luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
+    return '#1A1516' if luminance > 0.5 else '#FFFFFF'
+
+
+def _theme_block(selector, primary, accent):
+    rules = []
+    if primary:
+        rules.append(f'--color-primary:{primary};--color-primary-content:{_contrast_text(primary)};')
+    if accent:
+        rules.append(f'--color-accent:{accent};--color-accent-content:{_contrast_text(accent)};')
+    return f'{selector}{{{"".join(rules)}}}' if rules else ''
+
+
+def company_theme_css(request):
+    """Hoja CSS por empresa con sus colores de marca. La CSP (`style-src 'self'`) no
+    permite `<style>` inline, así que los tokens se sirven como un stylesheet del mismo
+    origen, cargado DESPUÉS de tailwind_css (ver templates/base.html). Sobrescribe las
+    custom properties de daisyUI (`--color-primary`, `--color-accent` y sus `-content`)
+    bajo `html[data-theme=...]`: todos los componentes ya leen `var(--color-*)`, así que
+    el cambio se propaga solo. ETag por (empresa, updated) + cache corto."""
+    company = getattr(request, 'company', None)
+    if company is None:
+        raise Http404
+    etag = f'"{company.pk}-{company.theme_version()}"'
+    if request.headers.get('If-None-Match') == etag:
+        return HttpResponseNotModified()
+    css = '\n'.join(filter(None, [
+        '/* Colores de marca de la empresa — generado por accounts.views.company_theme_css */',
+        _theme_block('html[data-theme="light"]', company.primary_color, company.accent_color),
+        _theme_block(
+            'html[data-theme="dark"]',
+            company.primary_color_dark or company.primary_color,
+            company.accent_color_dark or company.accent_color,
+        ),
+    ])) + '\n'
+    response = HttpResponse(css, content_type='text/css; charset=utf-8')
+    response['ETag'] = etag
     response['Cache-Control'] = 'public, max-age=300'
     return response
 
 
 # ── Login con Nextcloud (OAuth2) ────────────────────────────────────────────────
 
+@_company_required
 def nextcloud_login(request):
     """Redirige a Nextcloud para autorizar. El usuario nunca escribe su password de
-    Nextcloud acá — vuelve con un `code` que se canjea server-side en el callback."""
-    config = NextcloudOAuthConfig.load()
-    if not (config.enabled and config.base_url and config.client_id):
+    Nextcloud acá — vuelve con un `code` que se canjea server-side en el callback.
+    El `redirect_uri` lleva el prefijo de la empresa: cada cliente registra
+    `https://host/<slug>/acceso/nextcloud/callback/` en su app OAuth2."""
+    config = NextcloudOAuthConfig.objects.filter(company=request.company).first()
+    if config is None or not (config.enabled and config.base_url and config.client_id):
         messages.error(request, 'El login con Nextcloud no está habilitado.')
         return redirect('accounts:login')
 
@@ -702,13 +843,15 @@ def nextcloud_login(request):
     return redirect(f'{config.resolved_authorize_url()}?{params}')
 
 
+@_company_required
 def nextcloud_callback(request):
     """Canjea el `code` por un token, resuelve el email vía la API OCS de Nextcloud, y
-    loguea (creando la cuenta si hace falta) — todo gateado por la allow-list existente
-    (`is_email_allowed`/`resolve_default_role`), la misma que gobierna el onboarding
-    normal por correo."""
-    config = NextcloudOAuthConfig.load()
-    if not config.enabled:
+    loguea (creando la cuenta si hace falta) — todo gateado por la allow-list DE LA
+    EMPRESA (`is_email_allowed`/`resolve_default_role`), la misma que gobierna el
+    onboarding normal por correo."""
+    company = request.company
+    config = NextcloudOAuthConfig.objects.filter(company=company).first()
+    if config is None or not config.enabled:
         raise Http404
 
     next_url = request.session.pop('nc_oauth_next', '') or reverse('tickets:board')
@@ -752,11 +895,22 @@ def nextcloud_callback(request):
     if not email:
         messages.error(request, 'Tu usuario de Nextcloud no tiene un email configurado.')
         return redirect('accounts:login')
-    if not is_email_allowed(email):
-        messages.error(request, 'Tu cuenta de Nextcloud no está habilitada para acceder a SkyDesk.')
+    if not is_email_allowed(company, email):
+        messages.error(request, f'Tu cuenta de Nextcloud no está habilitada para acceder a {_brand(request)}.')
         return redirect('accounts:login')
 
+    profile_defaults = {'role': resolve_default_role(company, email), 'company': company}
     user = User.objects.filter(email__iexact=email).first()
+    if user is not None:
+        existing = Profile.objects.filter(user=user).first()
+        if user.is_superuser or (
+            existing is not None and existing.company_id and existing.company_id != company.pk
+            and not is_member(user, company)
+        ):
+            # Un email = una cuenta: no se "roba" la cuenta desde otra empresa (salvo que
+            # el superuser ya lo haya sumado como miembro adicional de esta).
+            messages.error(request, 'Esa cuenta pertenece a otra empresa.')
+            return redirect('accounts:login')
     if user is None:
         user = User.objects.create(username=email[:150], email=email, is_active=True)
         if display_name:
@@ -764,7 +918,7 @@ def nextcloud_callback(request):
             user.first_name, user.last_name = first, last
         user.set_unusable_password()
         user.save()
-        Profile.objects.get_or_create(user=user, defaults={'role': resolve_default_role(email)})
+        Profile.objects.get_or_create(user=user, defaults=profile_defaults)
     elif not user.is_active:
         # Misma defensa en profundidad que `activate`: una cuenta dada de baja (inactiva
         # PERO con password usable) no se reactiva sola por este flujo.
@@ -773,13 +927,16 @@ def nextcloud_callback(request):
             return redirect('accounts:login')
         user.is_active = True
         user.save(update_fields=['is_active'])
-        Profile.objects.get_or_create(user=user, defaults={'role': resolve_default_role(email)})
+        Profile.objects.get_or_create(user=user, defaults=profile_defaults)
 
+    profile, _ = Profile.objects.get_or_create(user=user, defaults=profile_defaults)
+    if profile.company_id is None:
+        profile.company = company
+        profile.save(update_fields=['company'])
     if nc_uid:
         # Se actualiza en cada login (no solo al crear la cuenta) para detectar, dentro del
         # iframe de Nextcloud, que la sesión quedó de un usuario de Nextcloud distinto al
         # que está logueado ahora ahí — ver NextcloudUidMismatchMiddleware.
-        profile, _ = Profile.objects.get_or_create(user=user, defaults={'role': resolve_default_role(email)})
         if profile.nextcloud_uid != nc_uid:
             profile.nextcloud_uid = nc_uid
             profile.save(update_fields=['nextcloud_uid'])
@@ -811,11 +968,18 @@ def dev_impersonate(request):
     if not real_user.is_superuser:
         raise Http404
     user_id = request.POST.get('user_id', '')
-    if user_id and User.objects.filter(pk=user_id, is_active=True).exists():
-        request.session['impersonate_id'] = user_id
+    target = User.objects.filter(pk=user_id, is_active=True).first() if user_id else None
+    if target is not None:
+        request.session['impersonate_id'] = str(target.pk)
     else:
         request.session.pop('impersonate_id', None)
     next_url = request.POST.get('next', '')
     if not url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
         next_url = reverse('tickets:board')
+    # Si el impersonado no opera en la empresa del request, seguirlo a su principal
+    # (el middleware igual lo redirigiría, pero mejor caer directo en su tablero).
+    target_company = get_user_company(target) if target is not None else None
+    current = getattr(request, 'company', None)
+    if target_company is not None and (current is None or not is_member(target, current)):
+        next_url = company_path(target_company, 'tickets:board')
     return redirect(next_url)

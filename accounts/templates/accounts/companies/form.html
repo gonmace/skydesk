@@ -1,0 +1,194 @@
+{% extends 'tickets/base_app.html' %}
+{% load static %}
+{% block title %}{% if company %}{{ company.name }}{% else %}Nueva empresa{% endif %}{% endblock %}
+
+{% block app_content %}
+<div class="max-w-2xl">
+  <div class="flex items-center justify-between gap-3 mb-1">
+    <h1 class="text-2xl font-black tracking-tight">{% if company %}{{ company.name }}{% else %}Nueva empresa{% endif %}</h1>
+    {% if company %}<a href="/{{ company.slug }}/" class="btn btn-ghost btn-sm">Entrar a /{{ company.slug }}/</a>{% endif %}
+  </div>
+  <p class="text-sm text-base-content/50 mb-4">
+    <a href="{% url 'companies:list' %}" class="link">← Empresas</a>
+    {% if company %} · Roles, Nextcloud y cuentas se administran desde dentro de la empresa
+    (<a class="link" href="/{{ company.slug }}/acceso/roles/">Roles</a>,
+    <a class="link" href="/{{ company.slug }}/acceso/nextcloud/">Nextcloud</a>,
+    <a class="link" href="/{{ company.slug }}/acceso/admin/">Cuentas</a>).{% endif %}
+  </p>
+
+  <form method="post" enctype="multipart/form-data" class="space-y-6" data-submit-spinner>
+    {% csrf_token %}
+    {% if form.non_field_errors %}<div class="alert alert-error text-sm py-2"><span>{{ form.non_field_errors.0 }}</span></div>{% endif %}
+
+    {# ── Datos ── #}
+    <div class="bg-base-100 rounded-2xl border border-base-300 p-6 space-y-4">
+      <h2 class="text-sm font-bold">Datos</h2>
+      <div>
+        <label class="label" for="{{ form.name.id_for_label }}"><span class="label-text font-medium">{{ form.name.label }}</span></label>
+        {{ form.name }}
+        {% for e in form.name.errors %}<p class="text-error text-xs mt-1">{{ e }}</p>{% endfor %}
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label class="label" for="{{ form.slug.id_for_label }}"><span class="label-text font-medium">{{ form.slug.label }}</span></label>
+          {{ form.slug }}
+          <p class="text-xs text-base-content/40 mt-1">{{ form.slug.help_text }}</p>
+          {% for e in form.slug.errors %}<p class="text-error text-xs mt-1">{{ e }}</p>{% endfor %}
+        </div>
+        <div>
+          <label class="label" for="{{ form.ticket_prefix.id_for_label }}"><span class="label-text font-medium">{{ form.ticket_prefix.label }}</span></label>
+          {{ form.ticket_prefix }}
+          <p class="text-xs text-base-content/40 mt-1">{{ form.ticket_prefix.help_text }}</p>
+          {% for e in form.ticket_prefix.errors %}<p class="text-error text-xs mt-1">{{ e }}</p>{% endfor %}
+        </div>
+      </div>
+      <label class="label cursor-pointer justify-start gap-3 whitespace-normal">
+        {{ form.is_active }}
+        <span class="label-text font-medium">{{ form.is_active.label }}</span>
+        <span class="text-xs text-base-content/40">{{ form.is_active.help_text }}</span>
+      </label>
+      {% if templates is not None %}
+        <div>
+          <label class="label" for="template"><span class="label-text font-medium">Matriz de roles inicial</span></label>
+          <select id="template" name="template" class="select select-bordered w-full">
+            <option value="">Valores por defecto del sistema</option>
+            {% for t in templates %}<option value="{{ t.pk }}">Copiar de «{{ t.name }}»</option>{% endfor %}
+          </select>
+          <p class="text-xs text-base-content/40 mt-1">Qué puede hacer cada rol. Después se ajusta en Roles, dentro de la empresa.</p>
+        </div>
+      {% endif %}
+    </div>
+
+    {# ── Marca ── #}
+    <div class="bg-base-100 rounded-2xl border border-base-300 p-6 space-y-4">
+      <h2 class="text-sm font-bold">Marca</h2>
+      <div>
+        <label class="label" for="{{ form.brand_name.id_for_label }}"><span class="label-text font-medium">{{ form.brand_name.label }}</span></label>
+        {{ form.brand_name }}
+        <p class="text-xs text-base-content/40 mt-1">{{ form.brand_name.help_text }}</p>
+        {% for e in form.brand_name.errors %}<p class="text-error text-xs mt-1">{{ e }}</p>{% endfor %}
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <label class="label" for="{{ form.logo_light.id_for_label }}"><span class="label-text font-medium">{{ form.logo_light.label }}</span></label>
+          <div class="h-12 px-3 mb-2 flex items-center bg-base-200 rounded-lg border border-base-300">
+            {% if company and company.logo_light %}<img src="/{{ company.slug }}/acceso/marca/logo/light/?v={{ company.theme_version }}" alt="" class="h-7 w-auto">
+            {% else %}<img src="{% static 'img/logo.png' %}" alt="Logo por defecto" class="h-7 w-auto">{% endif %}
+          </div>
+          {{ form.logo_light }}
+          <p class="text-xs text-base-content/40 mt-1">{{ form.logo_light.help_text }}</p>
+          {% for e in form.logo_light.errors %}<p class="text-error text-xs mt-1">{{ e }}</p>{% endfor %}
+        </div>
+        <div>
+          <label class="label" for="{{ form.logo_dark.id_for_label }}"><span class="label-text font-medium">{{ form.logo_dark.label }}</span></label>
+          <div class="h-12 px-3 mb-2 flex items-center bg-neutral rounded-lg border border-base-300">
+            {% if company and company.logo_light or company and company.logo_dark %}<img src="/{{ company.slug }}/acceso/marca/logo/dark/?v={{ company.theme_version }}" alt="" class="h-7 w-auto">
+            {% else %}<img src="{% static 'img/logo-dark.png' %}" alt="Logo por defecto" class="h-7 w-auto">{% endif %}
+          </div>
+          {{ form.logo_dark }}
+          <p class="text-xs text-base-content/40 mt-1">{{ form.logo_dark.help_text }}</p>
+          {% for e in form.logo_dark.errors %}<p class="text-error text-xs mt-1">{{ e }}</p>{% endfor %}
+        </div>
+      </div>
+      <div>
+        <label class="label" for="{{ form.favicon.id_for_label }}"><span class="label-text font-medium">{{ form.favicon.label }}</span></label>
+        <div class="flex items-center gap-3">
+          <div class="h-10 w-10 flex items-center justify-center bg-base-200 rounded-lg border border-base-300 shrink-0">
+            {% if company and company.favicon %}<img src="/{{ company.slug }}/acceso/marca/logo/favicon/?v={{ company.theme_version }}" alt="" class="h-6 w-6">
+            {% else %}<img src="{% static 'img/favicon.svg' %}" alt="" class="h-6 w-6">{% endif %}
+          </div>
+          <div class="flex-1">{{ form.favicon }}</div>
+        </div>
+        <p class="text-xs text-base-content/40 mt-1">{{ form.favicon.help_text }}</p>
+        {% for e in form.favicon.errors %}<p class="text-error text-xs mt-1">{{ e }}</p>{% endfor %}
+      </div>
+    </div>
+
+    {# ── Colores ── #}
+    <div class="bg-base-100 rounded-2xl border border-base-300 p-6 space-y-4">
+      <h2 class="text-sm font-bold">Colores</h2>
+      <p class="text-xs text-base-content/50">Hexadecimal de 6 dígitos (<code>#E4002B</code>). Vacío = colores por defecto del tema. El texto sobre cada color (blanco/negro) se calcula solo.</p>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {% for f in form %}{% if f.name in 'primary_color,primary_color_dark,accent_color,accent_color_dark' %}
+          <div>
+            <label class="label" for="{{ f.id_for_label }}"><span class="label-text font-medium">{{ f.label }}</span></label>
+            <div class="flex items-center gap-2">
+              <span class="inline-block w-8 h-8 rounded-lg border border-base-300 shrink-0" data-color-swatch="{{ f.id_for_label }}"></span>
+              <div class="flex-1">{{ f }}</div>
+            </div>
+            {% if f.help_text %}<p class="text-xs text-base-content/40 mt-1">{{ f.help_text }}</p>{% endif %}
+            {% for e in f.errors %}<p class="text-error text-xs mt-1">{{ e }}</p>{% endfor %}
+          </div>
+        {% endif %}{% endfor %}
+      </div>
+    </div>
+
+    {# ── Correo ── #}
+    <div class="bg-base-100 rounded-2xl border border-base-300 p-6 space-y-4">
+      <h2 class="text-sm font-bold">Remitente de los correos</h2>
+      <p class="text-xs text-base-content/50">El servidor SMTP es común a todas las empresas (<a class="link" href="{% url 'companies:email_config' %}">Correo</a>); acá solo se define cómo firma esta empresa.</p>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label class="label" for="{{ form.email_from_name.id_for_label }}"><span class="label-text font-medium">{{ form.email_from_name.label }}</span></label>
+          {{ form.email_from_name }}
+          {% for e in form.email_from_name.errors %}<p class="text-error text-xs mt-1">{{ e }}</p>{% endfor %}
+        </div>
+        <div>
+          <label class="label" for="{{ form.email_from.id_for_label }}"><span class="label-text font-medium">{{ form.email_from.label }}</span></label>
+          {{ form.email_from }}
+          <p class="text-xs text-base-content/40 mt-1">{{ form.email_from.help_text }}</p>
+          {% for e in form.email_from.errors %}<p class="text-error text-xs mt-1">{{ e }}</p>{% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <div class="flex gap-2 justify-end">
+      <a href="{% url 'companies:list' %}" class="btn btn-ghost btn-sm">Cancelar</a>
+      <button type="submit" class="btn btn-success btn-sm" data-spinner-label="Guardando…">Guardar</button>
+    </div>
+  </form>
+
+  {% if company %}
+  {# ── Miembros adicionales: usuarios de OTRA empresa que también operan en esta ── #}
+  <div class="bg-base-100 rounded-2xl border border-base-300 p-6 space-y-4 mt-6">
+    <h2 class="text-sm font-bold">Usuarios de otras empresas con acceso</h2>
+    <p class="text-xs text-base-content/50">
+      Cuentas cuya empresa principal es otra pero que también operan en «{{ company.name }}», con su mismo rol.
+      Entran por <code>/{{ company.slug }}/</code> y cambian de empresa desde su menú de usuario.
+      Los usuarios propios de la empresa se gestionan en <a class="link" href="/{{ company.slug }}/acceso/admin/">Cuentas</a>.
+    </p>
+    {% if extra_members %}
+      <ul class="divide-y divide-base-300">
+        {% for m in extra_members %}
+          <li class="flex items-center gap-3 py-2 text-sm">
+            <div class="flex-1 min-w-0">
+              <span class="font-medium">{{ m.user.get_full_name|default:m.user.email }}</span>
+              {% if m.user.get_full_name %}<span class="text-xs text-base-content/50">{{ m.user.email }}</span>{% endif %}
+              {% if not m.user.is_active %}<span class="badge badge-ghost badge-xs">inactiva</span>{% endif %}
+              <div class="text-xs text-base-content/50">Principal: {{ m.company.name }}</div>
+            </div>
+            <span class="badge badge-sm badge-role" data-role="{{ m.role }}">{{ m.raci_letter }} · {{ m.get_role_display }}</span>
+            <form method="post" action="{% url 'companies:member_remove' company.slug m.user.pk %}" class="contents" data-submit-spinner>
+              {% csrf_token %}
+              <button type="submit" class="btn btn-ghost btn-xs text-error" title="Quitar acceso a esta empresa">Quitar</button>
+            </form>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="text-sm text-base-content/40">Ninguno.</p>
+    {% endif %}
+    <form method="post" action="{% url 'companies:member_add' company.slug %}" class="flex flex-col sm:flex-row gap-2" data-submit-spinner>
+      {% csrf_token %}
+      <input type="email" name="email" required class="input input-bordered input-sm flex-1"
+             placeholder="correo de una cuenta existente en otra empresa" aria-label="Correo">
+      <button type="submit" class="btn btn-primary btn-sm" data-spinner-label="Agregando…">Dar acceso</button>
+    </form>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block app_scripts %}
+<script src="{% static 'js/color-swatch.js' %}" defer></script>
+{% endblock %}

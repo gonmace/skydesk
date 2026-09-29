@@ -124,6 +124,9 @@
             <td class="text-sm">
               {% if u.get_full_name %}<span class="font-medium">{{ u.get_full_name }}</span> <span class="text-xs text-base-content/50">{{ u.email }}</span>{% else %}{{ u.email|default:u.username }}{% endif %}
               {% if u.is_superuser %}<span class="badge badge-xs badge-primary">superuser</span>{% endif %}
+              {% if u.profile and u.profile.company_id and u.profile.company_id != current_company.pk %}
+                <span class="badge badge-xs badge-ghost" title="Su empresa principal es {{ u.profile.company.name }}; opera acá como miembro adicional. El rol es el mismo en todas sus empresas.">de {{ u.profile.company.name }}</span>
+              {% endif %}
             </td>
             <td data-label="Rol">
               {% if u.profile %}<span class="badge badge-sm badge-role" data-role="{{ u.profile.role }}">{{ u.profile.raci_letter }} · {{ u.profile.get_role_display }}</span>{% else %}<span class="text-base-content/30">—</span>{% endif %}

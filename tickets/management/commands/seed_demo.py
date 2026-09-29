@@ -9,8 +9,14 @@ la vista, adjuntos (imagen y PDF) en ticket y en comentario, y notificaciones co
 actor y con/sin ticket. Es idempotente: borra los tickets de demo previos (título que
 empieza con "[demo]") y sus adjuntos en disco antes de recrearlos.
 
-    python manage.py seed_demo
-    python manage.py seed_demo --clear   # solo limpia los datos de demo
+    python manage.py seed_demo                      # empresa "demo" (se crea si no existe)
+    python manage.py seed_demo --company acme       # otra empresa (debe existir, o se crea)
+    python manage.py seed_demo --clear              # solo limpia los datos de demo
+
+Multi-empresa: todo lo que siembra (usuarios, allow-list, tipos de actividad, proyectos,
+tickets, adjuntos) pertenece a UNA empresa. Por defecto es `demo` (prefijo DEMO), que se
+crea con `accounts.services.create_company` si no existe — así la demo nunca se mezcla
+con los datos reales de la empresa inicial.
 """
 import io
 import os
@@ -20,10 +26,11 @@ from datetime import timedelta
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
-from accounts.models import AllowedDomain, AllowedEmail, Profile, Role
+from accounts.models import AllowedDomain, AllowedEmail, Company, Profile, Role
+from accounts.services import create_company
 from attachments import services as attachment_services
 from notifications.models import Notification
 from notifications.services import notify
@@ -31,25 +38,25 @@ from tickets.models import Assignment, Comment, Label, Project, Ticket, TicketEv
 
 User = get_user_model()
 PASSWORD = 'Demo1234!'
-DOMAIN = 'empresa.com'
+DEFAULT_DOMAIN = 'empresa.com'
 ATTACHMENT_BACKEND = 'local'  # disco bajo private_attachments/demo_attachments — no depende de Nextcloud
 
 # Nombres con iniciales únicas entre sí (el avatar muestra 2 letras: 1ra de nombre +
 # 1ra de apellido — con "Elena Ejecuta"/"Elías Ejecuta"/etc. todos daban "EE" y no se
 # podían distinguir en el tablero). Apellidos variados en vez de uno fijo por rol.
 DEMO_USERS = [
-    ('coordinador@empresa.com', Role.COORDINADOR, 'Ana', 'Ferreyra'),
-    ('coordinador2@empresa.com', Role.COORDINADOR, 'Carlos', 'Medina'),
-    ('experto@empresa.com', Role.EXPERTO, 'Julieta', 'Sosa'),
-    ('experto2@empresa.com', Role.EXPERTO, 'Martín', 'Aguirre'),
-    ('experto3@empresa.com', Role.EXPERTO, 'Valeria', 'Blanco'),
-    ('ejecutor@empresa.com', Role.EJECUTOR, 'Diego', 'Torres'),
-    ('ejecutor2@empresa.com', Role.EJECUTOR, 'Lucía', 'Ramos'),
-    ('ejecutor3@empresa.com', Role.EJECUTOR, 'Nicolás', 'Vega'),
-    ('ejecutor4@empresa.com', Role.EJECUTOR, 'Camila', 'Ortiz'),
-    ('ejecutor5@empresa.com', Role.EJECUTOR, 'Federico', 'Paz'),
-    ('seguimiento@empresa.com', Role.SEGUIMIENTO, 'Rocío', 'Molina'),
-    ('seguimiento2@empresa.com', Role.SEGUIMIENTO, 'Tomás', 'Herrera'),
+    ('coordinador', Role.COORDINADOR, 'Ana', 'Ferreyra'),
+    ('coordinador2', Role.COORDINADOR, 'Carlos', 'Medina'),
+    ('experto', Role.EXPERTO, 'Julieta', 'Sosa'),
+    ('experto2', Role.EXPERTO, 'Martín', 'Aguirre'),
+    ('experto3', Role.EXPERTO, 'Valeria', 'Blanco'),
+    ('ejecutor', Role.EJECUTOR, 'Diego', 'Torres'),
+    ('ejecutor2', Role.EJECUTOR, 'Lucía', 'Ramos'),
+    ('ejecutor3', Role.EJECUTOR, 'Nicolás', 'Vega'),
+    ('ejecutor4', Role.EJECUTOR, 'Camila', 'Ortiz'),
+    ('ejecutor5', Role.EJECUTOR, 'Federico', 'Paz'),
+    ('seguimiento', Role.SEGUIMIENTO, 'Rocío', 'Molina'),
+    ('seguimiento2', Role.SEGUIMIENTO, 'Tomás', 'Herrera'),
 ]
 
 S = Ticket.Status
@@ -78,24 +85,54 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument('--clear', action='store_true', help='Solo borrar los datos de demo.')
+        parser.add_argument('--company', default='demo',
+                            help='Slug de la empresa de demo (default: demo; se crea si no existe).')
+        parser.add_argument('--domain', default=DEFAULT_DOMAIN,
+                            help='Dominio de los correos demo (default: empresa.com). Un correo '
+                                 'que ya pertenezca a OTRA empresa aborta el comando: usá otro dominio.')
 
     def handle(self, *args, **opts):
-        deleted, _ = Ticket.objects.filter(title__startswith='[demo] ').delete()
+        slug = opts['company']
+        domain = opts['domain'].strip().lower().lstrip('@')
+        company = Company.objects.filter(slug=slug).first()
+        # Un correo = una empresa: si alguno de los correos demo ya es de otra empresa,
+        # no se lo "roba" — se aborta ANTES de crear nada (usar --domain distinto).
+        emails = {local: f'{local}@{domain}' for local, _r, _f, _l in DEMO_USERS}
+        taken = Profile.objects.filter(user__email__in=emails.values(), company__isnull=False)
+        if company is not None:
+            taken = taken.exclude(company=company)
+        taken = list(taken.values_list('user__email', flat=True))
+        if taken and not opts['clear']:
+            raise CommandError(
+                'Estos correos ya pertenecen a otra empresa: ' + ', '.join(sorted(taken))
+                + '. Corré el comando con --domain <otro-dominio>.'
+            )
+        if company is None:
+            if opts['clear']:
+                self.stdout.write(self.style.SUCCESS(f'No existe la empresa «{slug}», nada que limpiar.'))
+                return
+            prefix = ''.join(ch for ch in slug.upper() if ch.isalpha())[:6] or 'DEMO'
+            company = create_company(
+                name=slug.capitalize(), slug=slug, ticket_prefix=prefix, brand_name=slug.capitalize(),
+            )
+            self.stdout.write(f'Empresa «{company.name}» creada (/{company.slug}/, prefijo {company.ticket_prefix}).')
+        deleted, _ = Ticket.objects.filter(company=company, title__startswith='[demo] ').delete()
         if deleted:
             self.stdout.write(f'Borrados {deleted} objeto(s) de demo previos.')
-        demo_attach_dir = os.path.join(settings.BASE_DIR, 'private_attachments', 'demo_attachments')
+        # Mismo root que usa get_backend('local', company=...) — ver attachments/backends.
+        demo_attach_dir = os.path.join(settings.BASE_DIR, 'private_attachments', 'demo_attachments', company.slug)
         shutil.rmtree(demo_attach_dir, ignore_errors=True)
         if opts['clear']:
             self.stdout.write(self.style.SUCCESS('Listo (solo limpieza).'))
             return
 
         AllowedDomain.objects.get_or_create(
-            domain=DOMAIN, defaults={'is_active': True, 'note': 'Dominio de demo'},
+            company=company, domain=domain, defaults={'is_active': True, 'note': 'Dominio de demo'},
         )
         # Alternativa a AllowedDomain: un correo puntual habilitado sin pertenecer a un
         # dominio permitido (flujo de invitación por excepción).
         AllowedEmail.objects.get_or_create(
-            email='invitado@partner-externo.com',
+            company=company, email='invitado@partner-externo.com',
             defaults={
                 'is_active': True, 'default_role': Role.SEGUIMIENTO,
                 'note': 'Acceso puntual de demo (alternativa a AllowedDomain)',
@@ -103,7 +140,8 @@ class Command(BaseCommand):
         )
 
         users = {}
-        for email, role, first, last in DEMO_USERS:
+        for local, role, first, last in DEMO_USERS:
+            email = emails[local]
             user, created = User.objects.get_or_create(
                 username=email, defaults={'email': email, 'is_active': True},
             )
@@ -113,20 +151,20 @@ class Command(BaseCommand):
             user.first_name = first
             user.last_name = last
             user.save()
-            Profile.objects.update_or_create(user=user, defaults={'role': role})
-            users[email] = user
-        coord = users['coordinador@empresa.com']
-        coord2 = users['coordinador2@empresa.com']
-        experto = users['experto@empresa.com']
-        experto2 = users['experto2@empresa.com']
-        experto3 = users['experto3@empresa.com']
-        ejecutor = users['ejecutor@empresa.com']
-        ejecutor2 = users['ejecutor2@empresa.com']
-        ejecutor3 = users['ejecutor3@empresa.com']
-        ejecutor4 = users['ejecutor4@empresa.com']
-        ejecutor5 = users['ejecutor5@empresa.com']
-        seguimiento = users['seguimiento@empresa.com']
-        seguimiento2 = users['seguimiento2@empresa.com']
+            Profile.objects.update_or_create(user=user, defaults={'role': role, 'company': company})
+            users[local] = user
+        coord = users['coordinador']
+        coord2 = users['coordinador2']
+        experto = users['experto']
+        experto2 = users['experto2']
+        experto3 = users['experto3']
+        ejecutor = users['ejecutor']
+        ejecutor2 = users['ejecutor2']
+        ejecutor3 = users['ejecutor3']
+        ejecutor4 = users['ejecutor4']
+        ejecutor5 = users['ejecutor5']
+        seguimiento = users['seguimiento']
+        seguimiento2 = users['seguimiento2']
 
         # Notificaciones previas de las cuentas demo (idempotencia).
         Notification.objects.filter(recipient__in=users.values()).delete()
@@ -140,7 +178,7 @@ class Command(BaseCommand):
         ]
         labels = {}
         for name, color in label_specs:
-            labels[name], _ = Label.objects.get_or_create(name=name, defaults={'color': color})
+            labels[name], _ = Label.objects.get_or_create(company=company, name=name, defaults={'color': color})
 
         # Proyectos: los 3 estados posibles + tickets sin proyecto (ver más abajo).
         project_specs = [
@@ -152,7 +190,7 @@ class Command(BaseCommand):
         proj = {}
         for name, code, city, status in project_specs:
             p, _ = Project.objects.get_or_create(
-                code=code, defaults={'name': name, 'city': city, 'status': status},
+                company=company, code=code, defaults={'name': name, 'city': city, 'status': status},
             )
             proj[code] = p
 
@@ -163,6 +201,7 @@ class Command(BaseCommand):
                       label_names=(), due_offset=None, has_subproducts=False,
                       parent=None, archived=False, suspended=False):
             kwargs = dict(
+                company=company,
                 title=f'[demo] {title}', solicitante=solicitante,
                 description='Ticket de demostración para explorar el tablero, el chat de '
                             'seguimiento y los permisos por rol.',
@@ -239,9 +278,9 @@ class Command(BaseCommand):
         assign(t5, ejecutor2, status=S.IN_PROGRESS, started=True)
         assign(t5, experto, kind=AK.EXPERTO, status=S.TODO)
         for author_email, body in [
-            ('coordinador@empresa.com', '¿Pudiste revisar los logs del MTA? Parece un problema de DNS.'),
-            ('ejecutor@empresa.com', 'Sí, el registro MX apuntaba mal. Ya lo corregí y estoy monitoreando.'),
-            ('experto@empresa.com', 'Perfecto, avisá si vuelve a fallar en las próximas horas.'),
+            ('coordinador', '¿Pudiste revisar los logs del MTA? Parece un problema de DNS.'),
+            ('ejecutor', 'Sí, el registro MX apuntaba mal. Ya lo corregí y estoy monitoreando.'),
+            ('experto', 'Perfecto, avisá si vuelve a fallar en las próximas horas.'),
         ]:
             Comment.objects.create(ticket=t5, author=users[author_email], body=body)
         attachment_services.store(
@@ -411,7 +450,7 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS('Datos de demo cargados.'))
         self.stdout.write('')
-        self.stdout.write(f'  Dominio permitido: {DOMAIN}')
+        self.stdout.write(f'  Dominio permitido: {domain}')
         self.stdout.write('  Tickets creados:   17 (uno por estado × combinación relevante)')
         self.stdout.write('  Usuarios (contraseña para todos: %s):' % PASSWORD)
         for email, role, first, last in DEMO_USERS:

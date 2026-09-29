@@ -5,10 +5,14 @@ Idempotente y resumible: procesa archivo por archivo y actualiza
 
 Uso::
 
-    python manage.py migrate_attachments --from nextcloud --to s3 [--delete-source] [--batch 100]
+    python manage.py migrate_attachments --company embol --from nextcloud --to s3 [--delete-source] [--batch 100]
+
+`--company` es obligatorio: los backends se instancian con las credenciales (Nextcloud)
+de esa empresa y solo se procesan sus adjuntos.
 """
 from django.core.management.base import BaseCommand, CommandError
 
+from accounts.models import Company
 from attachments.backends import get_backend
 from attachments.models import Attachment
 
@@ -17,6 +21,7 @@ class Command(BaseCommand):
     help = 'Migra los archivos de adjuntos de un backend a otro.'
 
     def add_arguments(self, parser):
+        parser.add_argument('--company', required=True, help='Slug de la empresa (ej. embol)')
         parser.add_argument('--from', dest='src', required=True, help='Backend origen')
         parser.add_argument('--to', dest='dst', required=True, help='Backend destino')
         parser.add_argument('--delete-source', action='store_true',
@@ -26,13 +31,16 @@ class Command(BaseCommand):
 
     def handle(self, *args, **opts):
         src_name, dst_name = opts['src'], opts['dst']
+        company = Company.objects.filter(slug=opts['company']).first()
+        if company is None:
+            raise CommandError(f"No existe la empresa '{opts['company']}'.")
         try:
-            src = get_backend(src_name)
-            dst = get_backend(dst_name)
+            src = get_backend(src_name, company=company)
+            dst = get_backend(dst_name, company=company)
         except Exception as exc:
             raise CommandError(f'No se pudo inicializar backend: {exc}')
 
-        qs = Attachment.objects.filter(storage_backend=src_name).order_by('pk')
+        qs = Attachment.objects.filter(company=company, storage_backend=src_name).order_by('pk')
         if opts['batch']:
             qs = qs[:opts['batch']]
 

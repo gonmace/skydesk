@@ -71,15 +71,31 @@ def get_user_role(user):
     return profile.role if profile else Role.EJECUTOR
 
 
+def get_user_company_id(user):
+    """Empresa del usuario (None para anónimos, superuser global o sin Profile)."""
+    if not user or not user.is_authenticated:
+        return None
+    profile = getattr(user, 'profile', None)
+    return profile.company_id if profile else None
+
+
 def _load_capability_set(user):
     """Todas las capacidades habilitadas para `user` en 2 queries (overrides + matriz de
-    rol), resolviendo el mismo criterio que antes hacía has_capability por-llamada
-    (override individual gana sobre el default del rol)."""
+    rol DE LA EMPRESA ACTIVA), resolviendo el mismo criterio que antes hacía has_capability
+    por-llamada (override individual gana sobre el default del rol). Un usuario sin
+    empresa no tiene ninguna capacidad.
+
+    La empresa activa es la del request (`user._active_company_id`, la cuelga
+    CompanyMiddleware tras validar que el usuario es miembro; el consumer WS hace lo
+    mismo). Sin ella (threads, comandos) se usa la principal del Profile: el rol es el
+    mismo en todas sus empresas, pero cada empresa tiene su propia matriz rol × capacidad."""
     role = get_user_role(user)
-    if role is None:
+    company_id = user.__dict__.get('_active_company_id') or get_user_company_id(user)
+    if role is None or company_id is None:
         return frozenset()
     overrides = dict(UserPermission.objects.filter(user=user).values_list('capability', 'enabled'))
-    role_caps = set(RolePermission.objects.filter(role=role, enabled=True).values_list('capability', flat=True))
+    role_caps = set(RolePermission.objects.filter(
+        company_id=company_id, role=role, enabled=True).values_list('capability', flat=True))
     enabled = set()
     for key in CAPABILITY_KEYS:
         if key in overrides:
@@ -111,35 +127,41 @@ def has_capability(user, capability):
     return capability in user.__dict__['_capability_set']
 
 
-def users_with_capability(capability):
-    """Usuarios activos que tienen la capacidad habilitada — para notificar a "quien
-    puede aprobar", etc. Replica la lógica de has_capability (override individual gana
-    sobre el default del rol) como queryset. Excluye a los superusers puros a propósito:
-    su bypass es administrativo, no significa que quieran recibir cada notificación
-    operativa (si un superuser además coordina, su Profile.role ya lo incluye)."""
+def users_with_capability(company, capability):
+    """Usuarios activos MIEMBROS de `company` (principal o adicional) que tienen la
+    capacidad habilitada — para notificar a "quien puede aprobar", etc. Replica la lógica
+    de has_capability (override individual gana sobre el default del rol) como queryset.
+    Excluye a los superusers puros a propósito (no tienen empresa): su bypass es
+    administrativo, no significa que quieran recibir cada notificación operativa."""
     from django.contrib.auth import get_user_model
     from django.db.models import Q
 
+    from .tenancy import members_q
+
     User = get_user_model()
+    if company is None:
+        return User.objects.none()
     roles = RolePermission.objects.filter(
-        capability=capability, enabled=True).values_list('role', flat=True)
+        company=company, capability=capability, enabled=True).values_list('role', flat=True)
     override_on = UserPermission.objects.filter(
         capability=capability, enabled=True).values_list('user_id', flat=True)
     override_off = UserPermission.objects.filter(
         capability=capability, enabled=False).values_list('user_id', flat=True)
-    return User.objects.filter(is_active=True).filter(
+    return User.objects.filter(is_active=True).filter(members_q(company)).filter(
         Q(pk__in=override_on) | (Q(profile__role__in=roles) & ~Q(pk__in=override_off))
     ).distinct()
 
 
-def roles_with_capability(capability):
-    """Roles (valores de `Role`) que tienen esta capacidad habilitada por defecto —
-    política general del rol vía `RolePermission`, sin mirar overrides individuales de
-    `UserPermission` (esos son la excepción puntual de una cuenta, no la regla del rol).
-    Para leyendas/ayuda que describen "qué ve cada rol" en general, no lo que ve un
-    usuario particular ahora mismo (eso es `has_capability`)."""
+def roles_with_capability(company, capability):
+    """Roles (valores de `Role`) que tienen esta capacidad habilitada por defecto en
+    `company` — política general del rol vía `RolePermission`, sin mirar overrides
+    individuales de `UserPermission` (esos son la excepción puntual de una cuenta, no
+    la regla del rol). Para leyendas/ayuda que describen "qué ve cada rol" en general,
+    no lo que ve un usuario particular ahora mismo (eso es `has_capability`)."""
+    if company is None:
+        return set()
     return set(RolePermission.objects.filter(
-        capability=capability, enabled=True).values_list('role', flat=True))
+        company=company, capability=capability, enabled=True).values_list('role', flat=True))
 
 
 def require_capability(capability):

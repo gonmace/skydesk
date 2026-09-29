@@ -48,7 +48,9 @@
 {% endblock %}
 
 {% block auth_footer %}
+{% if show_request_access %}
 ¿Primera vez? <a href="{% url 'accounts:request_access' %}" class="text-primary hover:underline">Solicitá acceso</a>
+{% endif %}
 {% endblock %}
 
 {% block extra_scripts %}

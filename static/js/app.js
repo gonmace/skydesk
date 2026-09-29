@@ -38,7 +38,9 @@
       var fresh = !sessionStorage.getItem('skydesk-visited');
       sessionStorage.setItem('skydesk-visited', '1');
       var lastTab = localStorage.getItem(TAB_KEY);
-      if (fresh && path === '/' && lastTab && lastTab !== path && tabs.indexOf(lastTab) !== -1) {
+      // tabs[0] es «Tablero» (la raíz de la empresa, ej. /embol/): con multi-empresa
+      // la raíz ya no es '/', así que se compara contra el href real del nav.
+      if (fresh && path === tabs[0] && lastTab && lastTab !== path && tabs.indexOf(lastTab) !== -1) {
         window.location.replace(lastTab);
       } else if (tabs.indexOf(path) !== -1) {
         localStorage.setItem(TAB_KEY, path);

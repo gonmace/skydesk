@@ -7,7 +7,9 @@ persiste los archivos en disco, así que sobreviven entre `manage.py seed_demo` 
 Deliberadamente FUERA de MEDIA_ROOT: nginx sirve MEDIA_ROOT/media/ sin autenticación
 (ver nginx.conf), y `attachment_serve` es la única vía que debe entregar estos archivos
 tras chequear permisos — si vivieran bajo MEDIA_ROOT, cualquiera con la key adivinable
-(son legibles, ej. "SKY-12/foto.jpg") podría descargarlos directo por /media/.
+(son legibles, ej. "EMBOL-0012_Título/foto.jpg") podría descargarlos directo por /media/.
+Con multi-empresa, get_backend(company=...) le pasa `root='<root>/<slug>'`: cada empresa
+en su subcarpeta.
 """
 import os
 

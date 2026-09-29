@@ -24,6 +24,11 @@
         </a>
 
         <nav class="hidden sm:flex items-center gap-1 flex-1 min-w-0 overflow-x-auto">
+          {% if nav_is_superuser %}
+            {% url 'companies:list' as u_companies %}
+            <a href="{{ u_companies }}" class="shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-sm font-semibold {% if not current_company %}bg-primary/10 text-primary{% else %}text-base-content/50 hover:text-base-content hover:bg-base-200{% endif %}" title="Panel de empresas">{% if current_company %}🏢 {{ current_company.name }}{% else %}Empresas{% endif %}</a>
+          {% endif %}
+          {% if current_company %}
           {% url 'tickets:board' as u_board %}
           {% url 'tickets:my_tickets' as u_mine %}
           <a href="{{ u_board }}" data-nav-tab class="shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-sm font-semibold {% if request.path == u_board %}bg-primary/10 text-primary{% else %}text-base-content/50 hover:text-base-content hover:bg-base-200{% endif %}">Tablero</a>
@@ -51,17 +56,16 @@
           {% if nav_is_superuser %}
             {% url 'accounts:roles_board' as u_rol %}
             {% url 'accounts:nextcloud_config' as u_ncloud %}
-            {% url 'accounts:email_config' as u_mail %}
-            {% url 'accounts:branding_config' as u_brand %}
+            {% url 'companies:edit' current_company.slug as u_brand %}
             <a href="{{ u_rol }}" data-nav-tab class="shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-sm font-semibold {% if request.path == u_rol %}bg-primary/10 text-primary{% else %}text-base-content/50 hover:text-base-content hover:bg-base-200{% endif %}">Roles</a>
             <a href="{{ u_ncloud }}" data-nav-tab class="shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-sm font-semibold {% if request.path == u_ncloud %}bg-primary/10 text-primary{% else %}text-base-content/50 hover:text-base-content hover:bg-base-200{% endif %}">Nextcloud</a>
-            <a href="{{ u_mail }}" data-nav-tab class="shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-sm font-semibold {% if request.path == u_mail %}bg-primary/10 text-primary{% else %}text-base-content/50 hover:text-base-content hover:bg-base-200{% endif %}">Correo</a>
-            <a href="{{ u_brand }}" data-nav-tab class="shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-sm font-semibold {% if request.path == u_brand %}bg-primary/10 text-primary{% else %}text-base-content/50 hover:text-base-content hover:bg-base-200{% endif %}">Logo</a>
+            <a href="{{ u_brand }}" class="shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-sm font-semibold text-base-content/50 hover:text-base-content hover:bg-base-200" title="Nombre, logos, colores y prefijo de tickets de la empresa">Marca</a>
+          {% endif %}
           {% endif %}
         </nav>
 
         <div class="flex items-center gap-2 ml-auto shrink-0">
-          {% if nav_can_create %}
+          {% if nav_can_create and current_company %}
             <a href="{% url 'tickets:create' %}" class="btn btn-success btn-sm">+ Ticket</a>
           {% endif %}
           {% if dev_impersonate_available %}
@@ -106,7 +110,7 @@
             <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.36 6.36l-.7-.7M6.34 6.34l-.7-.7m12.72 0l-.7.7M6.34 17.66l-.7.7M12 7a5 5 0 100 10 5 5 0 000-10z"/></svg>
           </button>
 
-          <div id="notif-menu" data-notif-menu-url="{% url 'notifications:menu_fragment' %}">{% include 'notifications/partials/_menu.html' %}</div>
+          {% if current_company %}<div id="notif-menu" data-notif-menu-url="{% url 'notifications:menu_fragment' %}">{% include 'notifications/partials/_menu.html' %}</div>{% endif %}
           <div id="nc-user-menu" class="dropdown dropdown-end">
             {# Avatar arriba + rol abajo, apilados: h-auto/min-h-0 deja crecer el btn dentro del h-14 del nav #}
             <button tabindex="0" class="btn btn-ghost btn-sm h-auto min-h-0 py-1 px-2" aria-label="Menú">
@@ -118,6 +122,8 @@
             </button>
             <ul id="nc-user-dropdown-content" tabindex="0" class="dropdown-content menu bg-base-100 rounded-box z-40 w-56 p-2 border border-base-300 shadow">
               <li class="sm:hidden menu-title text-xs truncate">{{ request.user.get_full_name|default:request.user.email|default:request.user.username }}{% if nav_role_label %} · {{ nav_role_label }}{% endif %}</li>
+              {% if nav_is_superuser %}<li class="sm:hidden"><a href="{% url 'companies:list' %}">Empresas</a></li>{% endif %}
+              {% if current_company %}
               <li class="sm:hidden"><a href="{% url 'tickets:board' %}">Tablero</a></li>
               <li class="sm:hidden"><a href="{% url 'tickets:my_tickets' %}">Mis tickets</a></li>
               {% if nav_can_dashboard %}<li class="sm:hidden"><a href="{% url 'tickets:dashboard' %}">Dashboard</a></li>{% endif %}
@@ -130,10 +136,23 @@
               {% if nav_is_superuser %}
                 <li class="sm:hidden"><a href="{% url 'accounts:roles_board' %}">Roles</a></li>
                 <li class="sm:hidden"><a href="{% url 'accounts:nextcloud_config' %}">Nextcloud</a></li>
-                <li class="sm:hidden"><a href="{% url 'accounts:email_config' %}">Correo</a></li>
-                <li class="sm:hidden"><a href="{% url 'accounts:branding_config' %}">Logo</a></li>
+                <li class="sm:hidden"><a href="{% url 'companies:edit' current_company.slug %}">Marca</a></li>
               {% endif %}
               <li><a href="{% url 'tickets:archived' %}">Archivados</a></li>
+              {% endif %}
+              {% if nav_companies %}
+                {# Usuario que opera en más de una empresa: cada opción va al tablero de esa
+                   empresa con SU prefijo (ver accounts.context_processors.nav_flags). #}
+                <li class="menu-title text-xs pt-2">Cambiar de empresa</li>
+                {% for item in nav_companies %}
+                  <li>
+                    <a href="{{ item.url }}" class="{% if item.active %}menu-active font-semibold{% endif %}" {% if item.active %}aria-current="true"{% endif %}>
+                      <span class="truncate">{{ item.company.name }}</span>
+                      {% if item.active %}<span class="ml-auto text-xs opacity-60">actual</span>{% endif %}
+                    </a>
+                  </li>
+                {% endfor %}
+              {% endif %}
               <li><a href="{% url 'accounts:profile' %}">Mi perfil</a></li>
               <li>
                 <form method="post" action="{% url 'accounts:logout' %}" class="contents">

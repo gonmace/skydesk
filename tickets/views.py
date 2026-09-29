@@ -23,6 +23,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from accounts.models import EmailConfig, Role
+from accounts.tenancy import members_q
 from accounts.permissions import (
     has_capability, require_capability, roles_with_capability, users_with_capability,
 )
@@ -47,7 +48,7 @@ def _log(ticket, actor, kind, detail='', assignment=None):
     # _log se llama en casi toda mutación relevante del tablero (mover, asignar, concluir,
     # aprobar, suspender, editar...) — engancharse acá cubre el broadcast de una sola vez
     # en vez de repetirlo vista por vista.
-    broadcast_board(ticket.pk)
+    broadcast_board(ticket.company_id, ticket.pk)
 
 
 def _user_display(u):
@@ -77,11 +78,18 @@ def _notify_assignment(request, ticket, users):
             send_mail_async(
                 f'[{ticket.key}] Te asignaron un ticket',
                 f'{actor} te asignó el ticket {ticket.key}: {ticket.title}\n\n{link}',
-                [u.email],
+                [u.email], company=ticket.company,
             )
 
 
-# ── Helpers de permisos ───────────────────────────────────────────────────────
+# ── Helpers de permisos / alcance por empresa ─────────────────────────────────
+
+def _get_ticket(request, pk, qs=None):
+    """Ticket `pk` DE LA EMPRESA del request, o 404. Todas las vistas por pk pasan por
+    acá: un id de otra empresa no existe para este usuario (ni siquiera con
+    tickets.view_all — el alcance de esa capacidad es su empresa)."""
+    return get_object_or_404(qs if qs is not None else Ticket.objects, pk=pk, company=request.company)
+
 
 def _can_see_ticket(user, ticket):
     if has_capability(user, 'tickets.view_all') or has_capability(user, 'chat.view_all'):
@@ -93,8 +101,10 @@ def _can_write_chat(user, ticket):
     return has_capability(user, 'chat.write') and _can_see_ticket(user, ticket)
 
 
-def _visible_tickets(user, include_archived=False, include_split=False):
-    qs = Ticket.objects.select_related('reporter', 'project', 'parent').prefetch_related(
+def _visible_tickets(user, company, include_archived=False, include_split=False):
+    """Tickets de `company` que `user` puede ver: todos (tickets.view_all) o solo aquellos
+    que reportó o en los que participa. Siempre acotado a la empresa."""
+    qs = Ticket.objects.filter(company=company).select_related('reporter', 'project', 'parent').prefetch_related(
         'assignments', 'assignments__user', 'assignments__user__profile')
     if not include_archived:
         qs = qs.filter(archived_at__isnull=True)
@@ -124,8 +134,8 @@ def _apply_filters(qs, request):
 
 def _filter_context(request):
     return {
-        'users': User.objects.filter(is_active=True).order_by('email'),
-        'projects': Project.objects.all(),
+        'users': User.objects.filter(is_active=True).filter(members_q(request.company)).distinct().order_by('email'),
+        'projects': Project.objects.filter(company=request.company),
         'q': request.GET.get('q', ''),
         'assignee': request.GET.get('assignee', ''),
         'project': request.GET.get('project', ''),
@@ -170,7 +180,7 @@ def _notify_new_comment(request, ticket, comment):
         f'Nuevo mensaje de seguimiento en {ticket.key} — {ticket.title}\n\n'
         f'{comment.body}\n\n{link}'
     )
-    send_mail_async(f'[{ticket.key}] Nuevo seguimiento', body, list(recipients))
+    send_mail_async(f'[{ticket.key}] Nuevo seguimiento', body, list(recipients), company=ticket.company)
 
 
 # ── Board (kanban) ────────────────────────────────────────────────────────────
@@ -195,14 +205,14 @@ def _visible_statuses(user):
     return [(v, l) for v, l in Ticket.Status.choices if v not in hidden]
 
 
-def _status_visibility_legend():
+def _status_visibility_legend(company):
     """Para el botón de ayuda «?» del tablero: qué columnas ve cada rol, agrupando los
     roles que ven exactamente el mismo rango — mismo criterio que `_visible_statuses`,
-    pero a nivel de rol (política general vía `RolePermission`), no del usuario logueado.
-    `statuses` son las 5 columnas en orden fijo; cada `row` marca su tramo visible con
-    índices `start`/`end` sobre esa lista, para dibujar el corchete horizontal."""
-    can_view_backlog = roles_with_capability('tickets.view_backlog')
-    can_view_waiting = roles_with_capability('tickets.view_waiting')
+    pero a nivel de rol (política general vía `RolePermission` de la empresa), no del
+    usuario logueado. `statuses` son las 5 columnas en orden fijo; cada `row` marca su
+    tramo visible con índices `start`/`end` sobre esa lista, para dibujar el corchete."""
+    can_view_backlog = roles_with_capability(company, 'tickets.view_backlog')
+    can_view_waiting = roles_with_capability(company, 'tickets.view_waiting')
     statuses = list(Ticket.Status.choices)
     groups = {}
     for role in Role:
@@ -226,7 +236,7 @@ def _status_visibility_legend():
 
 
 def _base_ticket_number(ticket):
-    """Número global del código (SKY-0014 → 14, SKY-0014-1 → 14, SKY-0014-1-1 → 14) —
+    """Número del código (EMBOL-0014 → 14, EMBOL-0014-1 → 14, EMBOL-0014-1-1 → 14) —
     orden por defecto de las cards del tablero: agrupa a un ticket con TODAS sus partes/
     derivados bajo el mismo número, en vez de por su propio pk (que depende de cuándo se
     creó ESE hijo puntual, no de a qué ticket pertenece)."""
@@ -314,7 +324,7 @@ def _parent_columns(request):
     reflejar "alguien concluyó pero no todos" en una sola card agregada sin ocultar ese
     progreso (ver models.py:212-236)."""
     user = request.user
-    tickets = list(_apply_filters(_visible_tickets(user), request).annotate(
+    tickets = list(_apply_filters(_visible_tickets(user, request.company), request).annotate(
         num_comments=Count('comments', distinct=True),
         num_attachments=Count('attachments', distinct=True),
         num_children=Count('children', distinct=True),
@@ -387,7 +397,7 @@ def _executor_columns(request):
     """Vista del ejecutor: cards = sus subtickets (sólidos) + los de co-ejecutores (fantasma)."""
     user = request.user
     my_ids = list(Assignment.objects.filter(
-        user=user, kind=Assignment.Kind.EJECUTOR,
+        user=user, kind=Assignment.Kind.EJECUTOR, ticket__company=request.company,
         ticket__archived_at__isnull=True, ticket__split_at__isnull=True,
     ).values_list('ticket_id', flat=True))
     tickets = _apply_filters(Ticket.objects.filter(id__in=my_ids), request).annotate(
@@ -435,7 +445,7 @@ def board(request):
     ctx.update({
         'filters': _filter_context(request),
         'can_create': has_capability(request.user, 'tickets.create'),
-        'status_legend': _status_visibility_legend(),
+        'status_legend': _status_visibility_legend(request.company),
         'show_status_legend': (
             has_capability(request.user, 'tickets.assign')
             or has_capability(request.user, 'tickets.view_waiting')
@@ -471,9 +481,10 @@ def ticket_move(request):
         # Lock de todas las filas afectadas ANTES de leerlas (queryset pelado, sin joins,
         # para que el FOR UPDATE valga en Postgres y no rompa en SQLite) — así el fetch
         # de abajo lee datos que nadie puede pisar hasta el commit.
-        list(Ticket.objects.select_for_update().filter(pk__in=order).values_list('pk', flat=True))
+        list(Ticket.objects.select_for_update().filter(
+            pk__in=order, company=request.company).values_list('pk', flat=True))
         movable = {
-            t.pk: t for t in _visible_tickets(request.user)
+            t.pk: t for t in _visible_tickets(request.user, request.company)
             .prefetch_related('assignments').filter(pk__in=order)
         }
         now = timezone.now()
@@ -553,7 +564,7 @@ def _conclude_assignments(request, a, actor, conclusion=''):
     # había algo por aprobar salvo mirando el dashboard.
     verb = 'concluyó un subticket (pendiente de aprobación)' if a.ticket.has_subproducts \
         else 'concluyó la tarea (pendiente de aprobación)'
-    recipients = {u.pk: u for u in users_with_capability('tickets.close')}
+    recipients = {u.pk: u for u in users_with_capability(a.ticket.company, 'tickets.close')}
     if a.ticket.reporter:
         recipients.setdefault(a.ticket.reporter.pk, a.ticket.reporter)
     for u in recipients.values():
@@ -594,7 +605,8 @@ def assignment_move(request):
         return HttpResponseBadRequest('estado no permitido')
     with transaction.atomic():
         moves = list(Assignment.objects.filter(
-            pk__in=set(ids), kind=Assignment.Kind.EJECUTOR).select_related('ticket', 'user'))
+            pk__in=set(ids), kind=Assignment.Kind.EJECUTOR, ticket__company=request.company,
+        ).select_related('ticket', 'user'))
         if len(moves) != len(set(ids)):
             raise Http404
         if len({a.ticket_id for a in moves}) != 1:
@@ -639,7 +651,10 @@ def assignment_conclude(request, pk):
     """Concluir el subticket propio (el texto de conclusión es opcional: descripción o link)."""
     conclusion = request.POST.get('conclusion', '').strip()
     with transaction.atomic():
-        a = get_object_or_404(Assignment, pk=pk, user=request.user, kind=Assignment.Kind.EJECUTOR)
+        a = get_object_or_404(
+            Assignment, pk=pk, user=request.user, kind=Assignment.Kind.EJECUTOR,
+            ticket__company=request.company,
+        )
         a.ticket = _lock_ticket(a.ticket_id)
         a.refresh_from_db()
         _conclude_assignments(request, a, request.user, conclusion)
@@ -655,7 +670,7 @@ def assignment_conclude(request, pk):
 def ticket_approve(request, pk):
     """El coordinador aprueba las conclusiones (subtickets DONE)."""
     with transaction.atomic():
-        ticket = get_object_or_404(Ticket, pk=pk)
+        ticket = _get_ticket(request, pk)
         ticket = _lock_ticket(ticket.pk)
         pending = ticket.executor_assignments.filter(status=Ticket.Status.DONE, approved_at__isnull=True)
         approved = list(pending.select_related('user'))
@@ -684,7 +699,7 @@ def ticket_reject(request, pk):
         messages.error(request, 'Indicá el motivo del rechazo: es lo que verá el ejecutor.')
         return redirect('tickets:detail', pk=pk)
     with transaction.atomic():
-        ticket = get_object_or_404(Ticket, pk=pk)
+        ticket = _get_ticket(request, pk)
         ticket = _lock_ticket(ticket.pk)
         pending = list(ticket.executor_assignments.filter(
             status=Ticket.Status.DONE, approved_at__isnull=True).select_related('user'))
@@ -715,7 +730,7 @@ def ticket_suspend(request, pk):
     tocar este candado — mientras `suspended_at` está seteado, los ejecutores no pueden
     mover su subticket (ver assignment_move)."""
     with transaction.atomic():
-        ticket = get_object_or_404(Ticket, pk=pk)
+        ticket = _get_ticket(request, pk)
         ticket = _lock_ticket(ticket.pk)
         now = timezone.now()
         if ticket.status == Ticket.Status.WAITING:
@@ -798,7 +813,7 @@ _THUMB_Q = Q(mime_type__startswith='image/') | Q(mime_type='application/pdf')
 
 @login_required
 def ticket_detail(request, pk):
-    ticket = get_object_or_404(Ticket.objects.select_related('reporter', 'project', 'parent'), pk=pk)
+    ticket = _get_ticket(request, pk, Ticket.objects.select_related('reporter', 'project', 'parent'))
     if not _can_see_ticket(request.user, ticket):
         raise PermissionDenied
     # Seguimiento heredado: el hilo incluye los mensajes/eventos de la cadena de padres
@@ -920,7 +935,7 @@ def comment_history(request, pk):
     viejos que ese pk), para el botón "Cargar mensajes anteriores" del chat. Los
     mensajes traídos así nunca son el último real del ticket, por eso se renderizan
     con `is_last_comment=False` (sin opción de editar/borrar, ver chat_message.html)."""
-    ticket = get_object_or_404(Ticket, pk=pk)
+    ticket = _get_ticket(request, pk)
     if not _can_see_ticket(request.user, ticket):
         raise PermissionDenied
     try:
@@ -950,7 +965,7 @@ def comments_since(request, pk):
     sin recargar la página, así no se pisa lo que el usuario esté escribiendo. El
     lote llega hasta el último mensaje real del hilo, por eso acá `is_last_comment`
     sí se calcula (el último del lote puede editarse/borrarse)."""
-    ticket = get_object_or_404(Ticket, pk=pk)
+    ticket = _get_ticket(request, pk)
     if not _can_see_ticket(request.user, ticket):
         raise PermissionDenied
     try:
@@ -978,7 +993,7 @@ def chat_attachments_more(request, pk):
     ver GALLERY_PAGE_SIZE / FILES_PAGE_SIZE."""
     from attachments.models import Attachment
     from django.contrib.contenttypes.models import ContentType
-    ticket = get_object_or_404(Ticket, pk=pk)
+    ticket = _get_ticket(request, pk)
     if not _can_see_ticket(request.user, ticket):
         raise PermissionDenied
     kind = request.GET.get('kind', 'thumbs')
@@ -1008,7 +1023,7 @@ def chat_attachments_more(request, pk):
 @login_required
 @require_POST
 def comment_add(request, pk):
-    ticket = get_object_or_404(Ticket, pk=pk)
+    ticket = _get_ticket(request, pk)
     if not _can_write_chat(request.user, ticket):
         raise PermissionDenied
     is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
@@ -1027,7 +1042,7 @@ def comment_add(request, pk):
         # mensajes de la card sí cambia, así que hay que avisar explícitamente. Se emite
         # 'comment.new' (append por AJAX en los detalles abiertos) y no 'ticket.changed'
         # (reload) para no pisar lo que otro usuario esté escribiendo.
-        broadcast_comment(ticket.pk)
+        broadcast_comment(ticket.company_id, ticket.pk)
         if is_ajax:
             comment.inherited = False
             html = render_to_string('tickets/partials/chat_message.html', {
@@ -1062,7 +1077,7 @@ def _can_moderate_comment(user, comment):
 @login_required
 @require_POST
 def comment_edit(request, pk):
-    comment = get_object_or_404(Comment.objects.select_related('ticket'), pk=pk)
+    comment = get_object_or_404(Comment.objects.select_related('ticket'), pk=pk, ticket__company=request.company)
     if not _can_moderate_comment(request.user, comment):
         raise PermissionDenied
     body = request.POST.get('body', '').strip()
@@ -1075,7 +1090,7 @@ def comment_edit(request, pk):
 @login_required
 @require_POST
 def comment_delete(request, pk):
-    comment = get_object_or_404(Comment.objects.select_related('ticket'), pk=pk)
+    comment = get_object_or_404(Comment.objects.select_related('ticket'), pk=pk, ticket__company=request.company)
     if not _can_moderate_comment(request.user, comment):
         raise PermissionDenied
     tid = comment.ticket_id
@@ -1113,7 +1128,7 @@ def attachment_annotate(request, pk):
     adjuntado la imagen anotada a un mensaje propio— en vez de colgar en silencio
     del comentario original (que puede ser de otro usuario)."""
     from attachments.models import Attachment
-    attachment = get_object_or_404(Attachment, pk=pk)
+    attachment = get_object_or_404(Attachment, pk=pk, company=request.company)
     if not attachment.is_image:
         return HttpResponseBadRequest('Solo se pueden anotar imágenes.')
     ticket = _owning_ticket(attachment)
@@ -1147,7 +1162,7 @@ def attachment_annotate(request, pk):
             notify(u, 'comentó en', actor=request.user, ticket=ticket)
     # Es un mensaje de chat nuevo: append en vivo en los detalles abiertos, sin
     # recargarles la página (quien anota recarga por su cuenta, ver image-annotate.js).
-    broadcast_comment(ticket.pk)
+    broadcast_comment(ticket.company_id, ticket.pk)
     return JsonResponse({'ok': True, 'id': new_version.pk})
 
 
@@ -1155,7 +1170,7 @@ def attachment_annotate(request, pk):
 @require_POST
 def attachment_delete(request, pk):
     from attachments.models import Attachment
-    attachment = get_object_or_404(Attachment, pk=pk)
+    attachment = get_object_or_404(Attachment, pk=pk, company=request.company)
     ticket = _owning_ticket(attachment)
     if ticket is None or not _can_write_chat(request.user, ticket):
         raise PermissionDenied
@@ -1174,7 +1189,7 @@ def attachment_delete(request, pk):
 @login_required
 def attachment_serve(request, pk):
     from attachments.models import Attachment
-    attachment = get_object_or_404(Attachment, pk=pk)
+    attachment = get_object_or_404(Attachment, pk=pk, company=request.company)
     ticket = _owning_ticket(attachment)
     if ticket is None or not _can_see_ticket(request.user, ticket):
         raise PermissionDenied
@@ -1209,7 +1224,7 @@ def attachment_serve(request, pk):
 def attachment_thumb(request, pk):
     from attachments import thumbnails
     from attachments.models import Attachment
-    attachment = get_object_or_404(Attachment, pk=pk)
+    attachment = get_object_or_404(Attachment, pk=pk, company=request.company)
     ticket = _owning_ticket(attachment)
     if ticket is None or not _can_see_ticket(request.user, ticket):
         raise PermissionDenied
@@ -1269,7 +1284,7 @@ def _sync_assignments(ticket, executor_users, expert_users, status=Ticket.Status
             a.save(update_fields=['kind'])
     if recompute:
         ticket.recompute_status()
-    broadcast_board(ticket.pk)   # blindaje: por si algún caller futuro no pasa por _log
+    broadcast_board(ticket.company_id, ticket.pk)   # blindaje: por si algún caller futuro no pasa por _log
     return list(User.objects.filter(pk__in=added)), kept, removed
 
 
@@ -1278,10 +1293,11 @@ def _sync_assignments(ticket, executor_users, expert_users, status=Ticket.Status
 def ticket_create(request):
     can_assign = has_capability(request.user, 'tickets.assign')
     if request.method == 'POST':
-        form = TicketForm(request.POST, can_assign=can_assign, user=request.user)
+        form = TicketForm(request.POST, can_assign=can_assign, user=request.user, company=request.company)
         if form.is_valid():
             ticket = form.save(commit=False)
             ticket.reporter = request.user
+            ticket.company = request.company
             ticket.save()
             form.save_m2m()
             _log(ticket, request.user, 'created', 'creó el ticket')
@@ -1295,7 +1311,7 @@ def ticket_create(request):
             messages.success(request, f'{ticket.key} creado.')
             return redirect('tickets:detail', pk=ticket.pk)
     else:
-        form = TicketForm(can_assign=can_assign, user=request.user)
+        form = TicketForm(can_assign=can_assign, user=request.user, company=request.company)
     return render(request, 'tickets/ticket_form.html', {
         'form': form, 'creating': True,
         'can_manage_labels': has_capability(request.user, 'tickets.edit_any'),
@@ -1305,13 +1321,14 @@ def ticket_create(request):
 
 @login_required
 def ticket_edit(request, pk):
-    ticket = get_object_or_404(Ticket, pk=pk)
+    ticket = _get_ticket(request, pk)
     if not _can_edit_ticket(request.user, ticket):
         raise PermissionDenied
     can_assign = has_capability(request.user, 'tickets.assign')
     old = {'priority': ticket.priority, 'due_date': ticket.due_date, 'status': ticket.status}
     if request.method == 'POST':
-        form = TicketForm(request.POST, instance=ticket, can_assign=can_assign, user=request.user)
+        form = TicketForm(request.POST, instance=ticket, can_assign=can_assign, user=request.user,
+                          company=request.company)
         if form.is_valid():
             with transaction.atomic():
                 _lock_ticket(ticket.pk)
@@ -1343,7 +1360,7 @@ def ticket_edit(request, pk):
             messages.success(request, f'{ticket.key} actualizado.')
             return redirect('tickets:detail', pk=ticket.pk)
     else:
-        form = TicketForm(instance=ticket, can_assign=can_assign, user=request.user)
+        form = TicketForm(instance=ticket, can_assign=can_assign, user=request.user, company=request.company)
     return render(request, 'tickets/ticket_form.html', {
         'form': form, 'creating': False, 'ticket': ticket,
         'can_manage_labels': has_capability(request.user, 'tickets.edit_any'),
@@ -1364,7 +1381,7 @@ def _can_archive_ticket(user, ticket):
 
 
 def _spawn_child(request, parent, *, title_suffix, clone_content=False):
-    """Crea un hijo con código jerárquico (SKY-0014-N) heredando labels y asignados del
+    """Crea un hijo con código jerárquico (EMBOL-0014-N) heredando labels y asignados del
     padre. Común a «Derivar» (padre sigue activo, tarea nueva a completar a mano) y
     «Dividir» (padre pasa a contenedor, `clone_content=True`: la parte debe nacer idéntica
     al padre, no una plantilla vacía)."""
@@ -1437,7 +1454,7 @@ def _spawn_child(request, parent, *, title_suffix, clone_content=False):
 def ticket_derive(request, pk):
     """Desprende una subtarea subordinada: el padre sigue activo en el tablero."""
     with transaction.atomic():
-        parent = get_object_or_404(Ticket, pk=pk)
+        parent = _get_ticket(request, pk)
         parent = _lock_ticket(parent.pk)
         child = _spawn_child(request, parent, title_suffix='(derivado)')
         _log(child, request.user, 'created', f'derivado de {parent.key}')
@@ -1453,7 +1470,7 @@ def ticket_divide(request, pk):
     original sigue activo tal cual, no se oculta ni se borra. Cada click agrega una parte
     más."""
     with transaction.atomic():
-        parent = get_object_or_404(Ticket, pk=pk)
+        parent = _get_ticket(request, pk)
         parent = _lock_ticket(parent.pk)
         child = _spawn_child(request, parent, title_suffix='(parte)', clone_content=True)
         _log(parent, request.user, 'split', 'dividido en partes')
@@ -1465,7 +1482,7 @@ def ticket_divide(request, pk):
 @login_required
 @require_POST
 def ticket_archive(request, pk):
-    ticket = get_object_or_404(Ticket, pk=pk)
+    ticket = _get_ticket(request, pk)
     if not _can_archive_ticket(request.user, ticket):
         raise PermissionDenied
     if ticket.status not in (Ticket.Status.DONE, Ticket.Status.WAITING):
@@ -1485,8 +1502,9 @@ def ticket_delete(request, pk):
     los derivados sobreviven con parent=NULL (SET_NULL) — son trabajo real."""
     if not request.user.is_superuser:
         raise PermissionDenied
-    ticket = get_object_or_404(Ticket, pk=pk)
+    ticket = _get_ticket(request, pk)
     key = ticket.key
+    company_id = ticket.company_id
     try:
         ticket.delete()
     except Exception:
@@ -1497,7 +1515,7 @@ def ticket_delete(request, pk):
         messages.error(request, f'No se pudo eliminar {key} (error de almacenamiento al borrar sus adjuntos).')
         return redirect('tickets:board')
     # No se usa _log(): crearía un TicketEvent del ticket recién borrado.
-    broadcast_board()
+    broadcast_board(company_id)
     messages.success(request, f'{key} eliminado definitivamente.')
     return redirect('tickets:board')
 
@@ -1505,7 +1523,7 @@ def ticket_delete(request, pk):
 @login_required
 @require_POST
 def ticket_unarchive(request, pk):
-    ticket = get_object_or_404(Ticket, pk=pk)
+    ticket = _get_ticket(request, pk)
     # Capacidad propia (por defecto solo Coordinador) en vez de is_superuser hardcodeado
     # — archivar seguía el sistema de capacidades y desarchivar no, asimetría sin razón.
     if not has_capability(request.user, 'tickets.unarchive'):
@@ -1519,7 +1537,7 @@ def ticket_unarchive(request, pk):
 
 @login_required
 def archived(request):
-    qs = _visible_tickets(request.user, include_archived=True, include_split=True).filter(
+    qs = _visible_tickets(request.user, request.company, include_archived=True, include_split=True).filter(
         archived_at__isnull=False,
     ).order_by('-archived_at')
     page_obj = Paginator(qs, 30).get_page(request.GET.get('page'))
@@ -1546,7 +1564,7 @@ def my_tickets(request):
     last = Comment.objects.filter(ticket=OuterRef('pk')).order_by('-created')
     sort = request.GET.get('sort') if request.GET.get('sort') in _MY_TICKETS_SORTS else 'vence'
     qs = _apply_filters(
-        Ticket.objects.select_related('reporter', 'project')
+        Ticket.objects.filter(company=request.company).select_related('reporter', 'project')
         .filter(assignments__user=request.user, split_at__isnull=True)
         # Se excluye por el Assignment propio (no por Ticket.status): un padre puede
         # quedar en DONE por desync de ticket_move mientras el subticket propio sigue
@@ -1604,7 +1622,7 @@ def label_quick_add(request):
     color = request.POST.get('color', Label.Color.NEUTRAL)
     if not name or color not in dict(Label.Color.choices):
         return JsonResponse({'ok': False, 'error': 'Falta el nombre o el color no es válido.'}, status=400)
-    label, created = Label.objects.get_or_create(name=name, defaults={'color': color})
+    label, created = Label.objects.get_or_create(company=request.company, name=name, defaults={'color': color})
     return JsonResponse({'ok': True, 'id': label.pk, 'name': label.name, 'color': label.color, 'created': created})
 
 
@@ -1617,14 +1635,14 @@ def labels_manage(request):
             name = request.POST.get('name', '').strip()
             color = request.POST.get('color', Label.Color.NEUTRAL)
             if name and color in dict(Label.Color.choices):
-                Label.objects.get_or_create(name=name, defaults={'color': color})
+                Label.objects.get_or_create(company=request.company, name=name, defaults={'color': color})
                 messages.success(request, f'Tipo de actividad «{name}» creado.')
         elif action == 'delete':
-            Label.objects.filter(pk=request.POST.get('id')).delete()
+            Label.objects.filter(pk=request.POST.get('id'), company=request.company).delete()
             messages.success(request, 'Tipo de actividad eliminado.')
         return redirect('tickets:labels')
     return render(request, 'tickets/labels.html', {
-        'labels': Label.objects.all(), 'colors': Label.Color.choices,
+        'labels': Label.objects.filter(company=request.company), 'colors': Label.Color.choices,
     })
 
 
@@ -1634,27 +1652,28 @@ def projects_manage(request):
     if request.method == 'POST':
         action = request.POST.get('action')
         if action == 'add':
-            form = ProjectForm(request.POST)
+            form = ProjectForm(request.POST, company=request.company)
             if form.is_valid():
                 form.save()
                 messages.success(request, 'Proyecto creado.')
             else:
                 messages.error(request, 'Revisá los datos (¿código repetido?).')
         elif action == 'edit':
-            project = get_object_or_404(Project, pk=request.POST.get('id'))
-            form = ProjectForm(request.POST, instance=project)
+            project = get_object_or_404(Project, pk=request.POST.get('id'), company=request.company)
+            form = ProjectForm(request.POST, instance=project, company=request.company)
             if form.is_valid():
                 form.save()
                 messages.success(request, 'Proyecto actualizado.')
             else:
                 messages.error(request, 'No se pudo actualizar (¿código repetido?).')
         elif action == 'delete':
-            get_object_or_404(Project, pk=request.POST.get('id')).delete()
+            get_object_or_404(Project, pk=request.POST.get('id'), company=request.company).delete()
             messages.success(request, 'Proyecto eliminado.')
         return redirect('tickets:projects')
-    projects = Project.objects.annotate(num_tickets=Count('tickets'))
+    projects = Project.objects.filter(company=request.company).annotate(num_tickets=Count('tickets'))
     return render(request, 'tickets/projects.html', {
-        'projects': projects, 'form': ProjectForm(), 'statuses': Project.Status.choices,
+        'projects': projects, 'form': ProjectForm(company=request.company),
+        'statuses': Project.Status.choices,
     })
 
 
@@ -1665,7 +1684,7 @@ def seguimiento(request):
     # memoria): [:1] trae el más reciente, [1:2] el anterior a ese.
     last = Comment.objects.filter(ticket=OuterRef('pk')).order_by('-created')
     qs = (
-        Ticket.objects.select_related('reporter', 'project')
+        Ticket.objects.filter(company=request.company).select_related('reporter', 'project')
         # Archivados y contenedores divididos ya no son actionables — sin este filtro
         # quedaban listados en Seguimiento para siempre.
         .filter(archived_at__isnull=True, split_at__isnull=True)
@@ -1704,7 +1723,7 @@ def dashboard(request):
     today = timezone.localdate()
     # Archivados y contenedores divididos (split_at) ya no son actionables: no deben
     # inflar los conteos del dashboard (el board tampoco los muestra).
-    active = Ticket.objects.filter(archived_at__isnull=True, split_at__isnull=True)
+    active = Ticket.objects.filter(company=request.company, archived_at__isnull=True, split_at__isnull=True)
     counts = {row['status']: row['n'] for row in active.values('status').annotate(n=Count('id'))}
     open_count = active.exclude(status=Ticket.Status.DONE).count()
     overdue = active.filter(due_date__lt=today).exclude(status=Ticket.Status.DONE).count()
@@ -1713,6 +1732,7 @@ def dashboard(request):
     pending_approval = (
         Assignment.objects.filter(
             kind=Assignment.Kind.EJECUTOR, status=Ticket.Status.DONE, approved_at__isnull=True,
+            ticket__company=request.company,
             ticket__archived_at__isnull=True, ticket__split_at__isnull=True,
         ).values('ticket_id').distinct().count()
     )
@@ -1752,7 +1772,7 @@ def dashboard(request):
             'count': r['n'], 'color': 'neutral',
         }
         for r in Assignment.objects.filter(
-            kind=Assignment.Kind.EJECUTOR,
+            kind=Assignment.Kind.EJECUTOR, ticket__company=request.company,
             ticket__archived_at__isnull=True, ticket__split_at__isnull=True,
         )
         .exclude(ticket__status=Ticket.Status.DONE)
@@ -1769,7 +1789,7 @@ def dashboard(request):
     # Tiempo medio en cada estado (Assignment.time_in_progress/time_todo, ver models.py) y
     # tiempo medio de resolución (closed_date - created) — solo sobre lo ya concluido.
     time_avgs = Assignment.objects.filter(
-        kind=Assignment.Kind.EJECUTOR, status=Ticket.Status.DONE,
+        kind=Assignment.Kind.EJECUTOR, status=Ticket.Status.DONE, ticket__company=request.company,
     ).aggregate(avg_in_progress=Avg('time_in_progress'), avg_todo=Avg('time_todo'))
     avg_resolution = active.filter(
         status=Ticket.Status.DONE, closed_date__isnull=False,

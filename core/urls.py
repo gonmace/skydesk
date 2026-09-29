@@ -19,6 +19,9 @@ urlpatterns = [
         content_type='text/plain',
     )),
     path('acceso/', include('accounts.urls')),
+    # Panel de empresas del superuser: fuera de cualquier prefijo de empresa (ver
+    # accounts.tenancy — 'empresas' es un segmento reservado, nunca slug).
+    path('empresas/', include('accounts.urls_companies')),
     path('notificaciones/', include('notifications.urls')),
     path('', include('tickets.urls')),
 ]

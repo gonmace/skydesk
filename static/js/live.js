@@ -84,7 +84,14 @@
 
   function connect() {
     var proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    socket = new WebSocket(proto + '://' + window.location.host + '/ws/live/');
+    // El WS vive fuera del prefijo de empresa: `?company=` le dice al consumer a qué
+    // tablero suscribirse (data-company en <html>, ver templates/base.html). El consumer
+    // lo acepta si el usuario es miembro de esa empresa (o superuser); si no, usa su
+    // empresa principal.
+    var company = document.documentElement.getAttribute('data-company');
+    var wsUrl = proto + '://' + window.location.host + '/ws/live/' +
+      (company ? '?company=' + encodeURIComponent(company) : '');
+    socket = new WebSocket(wsUrl);
 
     socket.onopen = function () {
       reconnectDelay = 1000;

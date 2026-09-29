@@ -67,6 +67,15 @@ if DEBUG:
     if sys.platform == 'win32':
         NPM_BIN_PATH = r'C:\Program Files\nodejs\npm.cmd'
 
+# Multi-empresa por prefijo de ruta (/<slug>/...). Va ÚLTIMO: necesita request.user,
+# request.real_user (impersonación) y messages ya inicializados — ver accounts/tenancy.py.
+MIDDLEWARE += ['accounts.tenancy.CompanyMiddleware']
+
+# URL pública del sitio, para links absolutos en correos generados fuera de un request
+# (accounts.tenancy.company_url). Sin SITE_URL en .env se deriva del primer ALLOWED_HOST.
+_site_host = next((h.lstrip('.') for h in ALLOWED_HOSTS if h and h not in ('localhost', '127.0.0.1', '*')), '')
+SITE_URL = config('SITE_URL', default=(f'https://{_site_host}' if (_site_host and not DEBUG) else 'http://localhost:8000'))
+
 AUTHENTICATION_BACKENDS = [
     'axes.backends.AxesStandaloneBackend',
     'accounts.backends.EmailBackend',
@@ -95,6 +104,7 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'accounts.context_processors.company_branding',
                 'accounts.context_processors.nav_flags',
                 'notifications.context_processors.notifications',
             ],

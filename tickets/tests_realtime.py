@@ -2,29 +2,29 @@
 no depender de un Redis real durante los tests."""
 import asyncio
 
+from asgiref.sync import sync_to_async
 from channels.layers import get_channel_layer
 from channels.testing import WebsocketCommunicator
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
 from django.test import TransactionTestCase, override_settings
 
-from accounts.models import Profile, Role
+from core.testing import default_company, make_user
 from tickets.consumers import LiveConsumer
 from tickets.models import Ticket
+from tickets.realtime import board_group
 
 User = get_user_model()
 
 _IN_MEMORY_LAYERS = {'default': {'BACKEND': 'channels.layers.InMemoryChannelLayer'}}
 
 
-def make_user(email, role=Role.EJECUTOR):
-    u = User.objects.create_user(email, email, 'x', is_active=True)
-    Profile.objects.update_or_create(user=u, defaults={'role': role})
-    return u
-
-
 @override_settings(CHANNEL_LAYERS=_IN_MEMORY_LAYERS)
 class LiveConsumerTests(TransactionTestCase):
+    # TransactionTestCase trunca TODAS las tablas al terminar cada test — también la
+    # empresa inicial que crea la data migration. serialized_rollback la restaura.
+    serialized_rollback = True
+
     async def test_anonymous_connection_rejected(self):
         communicator = WebsocketCommunicator(LiveConsumer.as_asgi(), '/ws/live/')
         communicator.scope['user'] = AnonymousUser()
@@ -40,7 +40,8 @@ class LiveConsumerTests(TransactionTestCase):
         self.assertTrue(connected)
 
         layer = get_channel_layer()
-        await layer.group_send('board', {'type': 'board.changed', 'ticket_id': 42})
+        company = await sync_to_async(default_company)()
+        await layer.group_send(board_group(company.pk), {'type': 'board.changed', 'ticket_id': 42})
         event = await communicator.receive_json_from()
         self.assertEqual(event, {'type': 'board.changed', 'ticket_id': 42})
         await communicator.disconnect()
@@ -105,6 +106,37 @@ class LiveConsumerTests(TransactionTestCase):
         event = await communicator.receive_json_from()
         self.assertEqual(event, {'type': 'comment.new', 'ticket_id': ticket.pk})
         await communicator.disconnect()
+
+    async def test_company_query_param_honoured_only_for_members(self):
+        """`?company=<slug>` elige el tablero si el usuario es miembro (principal o
+        adicional); si no lo es, cae a su empresa principal (ver LiveConsumer)."""
+        from accounts.services import create_company
+
+        def _setup():
+            demo = create_company(name='Demo', slug='demo', ticket_prefix='DEMO', brand_name='Demo')
+            multi = make_user('multi@e.com', extra_companies=[demo])
+            single = make_user('single@e.com')
+            return demo, default_company(), multi, single
+        demo, embol, multi, single = await sync_to_async(_setup)()
+        layer = get_channel_layer()
+
+        # Miembro adicional pidiendo demo → recibe el tablero de demo.
+        c1 = WebsocketCommunicator(LiveConsumer.as_asgi(), '/ws/live/?company=demo')
+        c1.scope['user'] = multi
+        self.assertTrue((await c1.connect())[0])
+        await layer.group_send(board_group(demo.pk), {'type': 'board.changed', 'ticket_id': 1})
+        self.assertEqual(await c1.receive_json_from(), {'type': 'board.changed', 'ticket_id': 1})
+        await c1.disconnect()
+
+        # No miembro pidiendo demo → se queda en su principal (embol), nada de demo.
+        c2 = WebsocketCommunicator(LiveConsumer.as_asgi(), '/ws/live/?company=demo')
+        c2.scope['user'] = single
+        self.assertTrue((await c2.connect())[0])
+        await layer.group_send(board_group(demo.pk), {'type': 'board.changed', 'ticket_id': 2})
+        self.assertTrue(await c2.receive_nothing(timeout=0.3))
+        await layer.group_send(board_group(embol.pk), {'type': 'board.changed', 'ticket_id': 3})
+        self.assertEqual(await c2.receive_json_from(), {'type': 'board.changed', 'ticket_id': 3})
+        await c2.disconnect()
 
     @staticmethod
     async def _make_user(email):

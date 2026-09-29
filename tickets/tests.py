@@ -4,13 +4,14 @@ from datetime import timedelta
 from django.contrib.auth import get_user_model
 from django.core import mail
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase, override_settings
+from django.test import override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from accounts.models import EmailConfig, Profile, Role
+from accounts.models import EmailConfig, Role
 from attachments import services
 from attachments.backends.memory import MemoryBackend
+from core.testing import TenantTestCase as TestCase, default_company, make_user, p
 from notifications.models import Notification
 
 from .models import Assignment, Comment, Label, Project, Ticket, TicketEvent
@@ -26,12 +27,6 @@ OV = dict(
         'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
     },
 )
-
-
-def make_user(email, role):
-    u = User.objects.create_user(email, email, 'x', is_active=True)
-    Profile.objects.update_or_create(user=u, defaults={'role': role})
-    return u
 
 
 @override_settings(**OV)
@@ -684,7 +679,7 @@ class ProjectTests(TestCase):
     def setUp(self):
         self.sup = make_user('sup@e.com', Role.COORDINADOR)
         self.ej = make_user('ej@e.com', Role.EJECUTOR)
-        self.proj = Project.objects.create(name='Red Sur', code='SUR', city='Córdoba')
+        self.proj = Project.objects.create(company=default_company(), name='Red Sur', code='SUR', city='Córdoba')
         self.t_in = Ticket.objects.create(title='CONPROY', reporter=self.sup, project=self.proj)
         self.t_out = Ticket.objects.create(title='SINPROY', reporter=self.sup)
 
@@ -701,7 +696,7 @@ class ProjectTests(TestCase):
         self.assertEqual(self.client.get(reverse('tickets:projects')).status_code, 200)
 
     def test_code_uppercased_on_save(self):
-        p = Project.objects.create(name='Cloud', code='cl ')
+        p = Project.objects.create(company=default_company(), name='Cloud', code='cl ')
         self.assertEqual(p.code, 'CL')
 
 
@@ -1115,7 +1110,7 @@ class TicketDeleteTests(TestCase):
 
 class TicketCodeGenerationTests(TestCase):
     """Al crear un hijo (derivar o dividir), el código cuelga del código del padre
-    (SKY-000N-1, -2…) en vez de tomar un número nuevo del correlativo global."""
+    (EMBOL-000N-1, -2…) en vez de tomar un número nuevo del correlativo de la empresa."""
 
     def setUp(self):
         self.coord = make_user('coord@e.com', Role.COORDINADOR)
@@ -1148,7 +1143,7 @@ class TicketCodeGenerationTests(TestCase):
     def test_flat_counter_unaffected_by_subdivision(self):
         self.parent.create_child(title='Hijo 1', reporter=self.coord)
         other = Ticket.objects.create(title='Otro ticket normal', reporter=self.coord)
-        self.assertRegex(other.code, r'^SKY-\d{4}$')
+        self.assertRegex(other.code, r'^EMBOL-\d{4}$')
 
     def test_derive_view_uses_hierarchical_code(self):
         self.client.force_login(self.coord)
@@ -1221,8 +1216,8 @@ class DeriveInheritanceTests(TestCase):
         self.coord = make_user('coord@e.com', Role.COORDINADOR)
         self.ejecutor = make_user('ej@e.com', Role.EJECUTOR)
         self.experto = make_user('exp@e.com', Role.EXPERTO)
-        self.infra = Label.objects.create(name='infra', color=Label.Color.INFO)
-        self.bug = Label.objects.create(name='bug', color=Label.Color.ERROR)
+        self.infra = Label.objects.create(company=default_company(), name='infra', color=Label.Color.INFO)
+        self.bug = Label.objects.create(company=default_company(), name='bug', color=Label.Color.ERROR)
         self.parent = Ticket.objects.create(title='Padre', reporter=self.coord)
         self.parent.labels.set([self.infra, self.bug])
         Assignment.objects.create(ticket=self.parent, user=self.ejecutor, kind=Assignment.Kind.EJECUTOR)
@@ -1299,12 +1294,12 @@ class DivideContainerTests(TestCase):
     def test_divide_creates_one_part(self):
         self.client.force_login(self.coord)
         r = self.client.post(reverse('tickets:divide', args=[self.parent.pk]))
-        self.assertRedirects(r, reverse('tickets:board'))
+        self.assertRedirects(r, p(reverse('tickets:board')))
         part = self.parent.children.get()
         self.assertEqual(part.code, f'{self.parent.code}-1')
 
     def test_part_inherits_labels_and_assignments(self):
-        label = Label.objects.create(name='infra', color=Label.Color.INFO)
+        label = Label.objects.create(company=default_company(), name='infra', color=Label.Color.INFO)
         self.parent.labels.set([label])
         self.client.force_login(self.coord)
         self.client.post(reverse('tickets:divide', args=[self.parent.pk]))
@@ -1436,7 +1431,7 @@ class LabelQuickAddTests(TestCase):
         self.assertEqual((label.name, label.color), ('Relevamiento', 'info'))
 
     def test_duplicate_name_reuses_existing(self):
-        existing = Label.objects.create(name='Relevamiento', color=Label.Color.SUCCESS)
+        existing = Label.objects.create(company=default_company(), name='Relevamiento', color=Label.Color.SUCCESS)
         self.client.force_login(self.coord)
         r = self.client.post(reverse('tickets:label_add'), {'name': 'Relevamiento', 'color': 'info'})
         data = r.json()
@@ -1459,7 +1454,7 @@ class LabelQuickAddTests(TestCase):
         self.assertFalse(Label.objects.filter(name='Hack').exists())
 
     def test_create_form_shows_quick_add_ui_and_chip_options(self):
-        Label.objects.create(name='Cableado', color=Label.Color.WARNING)
+        Label.objects.create(company=default_company(), name='Cableado', color=Label.Color.WARNING)
         self.client.force_login(self.coord)
         r = self.client.get(reverse('tickets:create'))
         self.assertContains(r, 'data-label-add')                    # UI de alta rápida
@@ -1467,7 +1462,7 @@ class LabelQuickAddTests(TestCase):
         self.assertContains(r, 'data-color="warning">Cableado')     # chip con color
 
     def test_edit_form_preselects_ticket_labels(self):
-        label = Label.objects.create(name='Cableado', color=Label.Color.WARNING)
+        label = Label.objects.create(company=default_company(), name='Cableado', color=Label.Color.WARNING)
         t = Ticket.objects.create(title='T', reporter=self.coord)
         t.labels.set([label])
         self.client.force_login(self.coord)

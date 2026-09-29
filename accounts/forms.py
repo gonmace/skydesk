@@ -5,7 +5,7 @@ from django.contrib.auth.forms import (
 )
 
 from .models import (
-    AllowedDomain, AllowedEmail, BrandingConfig, EmailConfig, NextcloudOAuthConfig, Role,
+    AllowedDomain, AllowedEmail, Company, EmailConfig, NextcloudOAuthConfig, Role,
 )
 
 _INPUT = 'input input-bordered w-full'
@@ -163,9 +163,27 @@ class AllowedDomainForm(forms.ModelForm):
             'note': forms.TextInput(attrs={'class': _INPUT, 'placeholder': 'Nota (opcional)'}),
         }
 
-    def __init__(self, *args, viewer=None, **kwargs):
+    def __init__(self, *args, viewer=None, company=None, **kwargs):
         super().__init__(*args, **kwargs)
+        self.company = company
         _restrict_role_field(self.fields['default_role'], viewer)
+
+    def clean_domain(self):
+        # La unicidad es por (company, domain) y `company` no es campo del form, así que
+        # validate_unique() de ModelForm no la chequea: se valida acá para no reventar
+        # con IntegrityError al guardar.
+        domain = self.cleaned_data['domain'].strip().lower().lstrip('@')
+        qs = AllowedDomain.objects.filter(company=self.company, domain=domain)
+        if self.instance.pk:
+            qs = qs.exclude(pk=self.instance.pk)
+        if qs.exists():
+            raise forms.ValidationError('Ese dominio ya está en la lista.')
+        return domain
+
+    def save(self, commit=True):
+        if self.company is not None:
+            self.instance.company = self.company
+        return super().save(commit=commit)
 
 
 class NextcloudOAuthConfigForm(forms.ModelForm):
@@ -205,7 +223,7 @@ class NextcloudOAuthConfigForm(forms.ModelForm):
 
 
 class EmailConfigForm(forms.ModelForm):
-    """Editada solo por el superuser (accounts:email_config). La contraseña SMTP nunca
+    """Editada solo por el superuser (companies:email_config). La contraseña SMTP nunca
     se re-muestra: si se deja vacía al guardar, se conserva el valor existente."""
     password = forms.CharField(
         label='Contraseña', required=False,
@@ -237,17 +255,69 @@ class EmailConfigForm(forms.ModelForm):
         return password or (self.instance.password if self.instance else '')
 
 
-class BrandingConfigForm(forms.ModelForm):
-    """Editada solo por el superuser (accounts:branding_config). Cada campo tiene su
-    checkbox nativo de «Clear» (ClearableFileInput) para volver al logo por defecto."""
+_FILE = 'file-input file-input-bordered w-full'
+_COLOR = f'{_INPUT} font-mono uppercase'
+
+
+class CompanyForm(forms.ModelForm):
+    """Alta/edición de una empresa (solo superuser, panel /empresas/). Los archivos
+    tienen su checkbox nativo de «Clear» (ClearableFileInput) para volver al default.
+    La validación de slug reservado / prefijo vive en Company.clean() y los validators
+    del modelo — el ModelForm los corre en _post_clean()."""
 
     class Meta:
-        model = BrandingConfig
-        fields = ('logo_light', 'logo_dark')
+        model = Company
+        fields = (
+            'name', 'slug', 'ticket_prefix', 'is_active',
+            'brand_name', 'logo_light', 'logo_dark', 'favicon',
+            'primary_color', 'primary_color_dark', 'accent_color', 'accent_color_dark',
+            'email_from_name', 'email_from',
+        )
         widgets = {
-            'logo_light': forms.ClearableFileInput(attrs={'class': 'file-input file-input-bordered w-full'}),
-            'logo_dark': forms.ClearableFileInput(attrs={'class': 'file-input file-input-bordered w-full'}),
+            'name': forms.TextInput(attrs={'class': _INPUT, 'placeholder': 'Embol S.A.'}),
+            'slug': forms.TextInput(attrs={'class': f'{_INPUT} font-mono', 'placeholder': 'embol'}),
+            'ticket_prefix': forms.TextInput(attrs={'class': _COLOR, 'placeholder': 'EMBOL', 'maxlength': 6}),
+            'is_active': forms.CheckboxInput(attrs={'class': _CHECKBOX}),
+            'brand_name': forms.TextInput(attrs={'class': _INPUT, 'placeholder': 'Embol'}),
+            'logo_light': forms.ClearableFileInput(attrs={'class': _FILE}),
+            'logo_dark': forms.ClearableFileInput(attrs={'class': _FILE}),
+            'favicon': forms.ClearableFileInput(attrs={'class': _FILE}),
+            'primary_color': forms.TextInput(attrs={'class': _COLOR, 'placeholder': '#E4002B', 'maxlength': 7}),
+            'primary_color_dark': forms.TextInput(attrs={'class': _COLOR, 'placeholder': '#FF2233', 'maxlength': 7}),
+            'accent_color': forms.TextInput(attrs={'class': _COLOR, 'placeholder': '#D1A23C', 'maxlength': 7}),
+            'accent_color_dark': forms.TextInput(attrs={'class': _COLOR, 'placeholder': '#D1A23C', 'maxlength': 7}),
+            'email_from_name': forms.TextInput(attrs={'class': _INPUT, 'placeholder': 'Embol Tickets'}),
+            'email_from': forms.EmailInput(attrs={'class': _INPUT, 'placeholder': 'tickets@embol.com'}),
         }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance.pk:
+            # El prefijo se puede cambiar (el correlativo sigue), pero el slug ya está en
+            # links enviados por correo: se avisa en el help_text del modelo, no se bloquea.
+            self.fields['slug'].widget.attrs['data-warn-change'] = '1'
+
+    def _clean_color(self, name):
+        value = (self.cleaned_data.get(name) or '').strip().upper()
+        return value
+
+    def clean_primary_color(self):
+        return self._clean_color('primary_color')
+
+    def clean_primary_color_dark(self):
+        return self._clean_color('primary_color_dark')
+
+    def clean_accent_color(self):
+        return self._clean_color('accent_color')
+
+    def clean_accent_color_dark(self):
+        return self._clean_color('accent_color_dark')
+
+    def clean_slug(self):
+        return (self.cleaned_data.get('slug') or '').strip().lower()
+
+    def clean_ticket_prefix(self):
+        return (self.cleaned_data.get('ticket_prefix') or '').strip().upper()
 
 
 class AllowedEmailForm(forms.ModelForm):
@@ -260,6 +330,21 @@ class AllowedEmailForm(forms.ModelForm):
             'note': forms.TextInput(attrs={'class': _INPUT, 'placeholder': 'Nota (opcional)'}),
         }
 
-    def __init__(self, *args, viewer=None, **kwargs):
+    def __init__(self, *args, viewer=None, company=None, **kwargs):
         super().__init__(*args, **kwargs)
+        self.company = company
         _restrict_role_field(self.fields['default_role'], viewer)
+
+    def clean_email(self):
+        email = self.cleaned_data['email'].strip().lower()
+        qs = AllowedEmail.objects.filter(company=self.company, email=email)
+        if self.instance.pk:
+            qs = qs.exclude(pk=self.instance.pk)
+        if qs.exists():
+            raise forms.ValidationError('Ese correo ya está en la lista.')
+        return email
+
+    def save(self, commit=True):
+        if self.company is not None:
+            self.instance.company = self.company
+        return super().save(commit=commit)

@@ -16,8 +16,9 @@ urlpatterns = [
     path('perfil/', views.profile, name='profile'),
     path('logout/', auth_views.LogoutView.as_view(next_page='accounts:login'), name='logout'),
 
-    # Password reset (vistas built-in con templates propios)
-    path('password/reset/', auth_views.PasswordResetView.as_view(
+    # Password reset (vistas built-in con templates propios; la de envío es una subclase
+    # que pasa la marca de la empresa al correo)
+    path('password/reset/', views.BrandedPasswordResetView.as_view(
         template_name='accounts/password_reset_form.html',
         email_template_name='accounts/emails/password_reset.txt',
         subject_template_name='accounts/emails/password_reset_subject.txt',
@@ -41,8 +42,9 @@ urlpatterns = [
     path('cuenta/<int:pk>/', views.user_edit, name='user_edit'),
     path('roles/', views.roles_board, name='roles_board'),
     path('nextcloud/', views.nextcloud_config, name='nextcloud_config'),
-    path('correo/', views.email_config, name='email_config'),
-    path('marca/', views.branding_config, name='branding_config'),
+    # Marca de la empresa del prefijo (públicas: se usan en el login). La edición vive
+    # en el panel del superuser (/empresas/<slug>/editar/); el SMTP global en /empresas/correo/.
     path('marca/logo/<str:variant>/', views.branding_logo, name='branding_logo'),
+    path('marca/tema.css', views.company_theme_css, name='company_theme_css'),
     path('dev/impersonar/', views.dev_impersonate, name='dev_impersonate'),
 ]

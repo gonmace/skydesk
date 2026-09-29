@@ -1,0 +1,22 @@
+{% extends 'base.html' %}
+{% block title %}Empresa inactiva{% endblock %}
+
+{% block content %}
+<div class="min-h-screen flex items-center justify-center bg-base-200 px-4 py-10">
+  <div class="w-full max-w-md text-center">
+    <h1 class="text-4xl font-black tracking-tight text-primary mb-3">{{ brand_name }}</h1>
+    <div class="card bg-base-100 rounded-2xl border border-base-300">
+      <div class="card-body p-6 sm:p-8 space-y-3">
+        <p class="font-semibold">La empresa «{{ company.name }}» está desactivada.</p>
+        <p class="text-sm text-base-content/60">Sus datos se conservan, pero por el momento nadie puede entrar. Si creés que es un error, contactá al administrador del servicio.</p>
+        {% if request.user.is_authenticated %}
+          <form method="post" action="{% url 'accounts:logout' %}" class="pt-2">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-ghost btn-sm">Cerrar sesión</button>
+          </form>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

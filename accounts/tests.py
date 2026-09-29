@@ -7,14 +7,16 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.tokens import default_token_generator
 from django.core import mail
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase, override_settings
+from django.test import override_settings
 from django.urls import reverse
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
 
+from core.testing import DEFAULT_SLUG, TenantTestCase as TestCase, default_company, make_user, p
+
 from .access import is_email_allowed, resolve_default_role
 from .models import (
-    AllowedDomain, AllowedEmail, BrandingConfig, EmailConfig, NextcloudOAuthConfig,
+    AllowedDomain, AllowedEmail, EmailConfig, NextcloudOAuthConfig,
     Profile, Role, RolePermission, UserPermission,
 )
 from .permissions import has_capability
@@ -33,13 +35,24 @@ OV = dict(
 
 class AllowListTests(TestCase):
     def test_allowed_and_default_role(self):
-        AllowedDomain.objects.create(domain='empresa.com', default_role=Role.EXPERTO)
-        AllowedEmail.objects.create(email='x@otro.com', default_role=Role.SEGUIMIENTO)
-        self.assertTrue(is_email_allowed('a@empresa.com'))
-        self.assertFalse(is_email_allowed('a@malo.com'))
-        self.assertEqual(resolve_default_role('a@empresa.com'), Role.EXPERTO)
-        self.assertEqual(resolve_default_role('x@otro.com'), Role.SEGUIMIENTO)
-        self.assertEqual(resolve_default_role('a@malo.com'), Role.EJECUTOR)
+        c = default_company()
+        AllowedDomain.objects.create(company=c, domain='empresa.com', default_role=Role.EXPERTO)
+        AllowedEmail.objects.create(company=c, email='x@otro.com', default_role=Role.SEGUIMIENTO)
+        self.assertTrue(is_email_allowed(c, 'a@empresa.com'))
+        self.assertFalse(is_email_allowed(c, 'a@malo.com'))
+        self.assertEqual(resolve_default_role(c, 'a@empresa.com'), Role.EXPERTO)
+        self.assertEqual(resolve_default_role(c, 'x@otro.com'), Role.SEGUIMIENTO)
+        self.assertEqual(resolve_default_role(c, 'a@malo.com'), Role.EJECUTOR)
+
+    def test_allow_list_is_per_company(self):
+        from .services import create_company
+        c = default_company()
+        other = create_company(name='Otra', slug='otra', ticket_prefix='OTRA')
+        AllowedDomain.objects.create(company=other, domain='otra.com', default_role=Role.EXPERTO)
+        self.assertTrue(is_email_allowed(other, 'a@otra.com'))
+        self.assertFalse(is_email_allowed(c, 'a@otra.com'))
+        self.assertEqual(resolve_default_role(c, 'a@otra.com'), Role.EJECUTOR)
+        self.assertFalse(is_email_allowed(None, 'a@otra.com'))
 
 
 @override_settings(**OV)
@@ -58,7 +71,7 @@ class LogoutTests(TestCase):
 @override_settings(**OV)
 class RequestAccessTests(TestCase):
     def setUp(self):
-        AllowedDomain.objects.create(domain='empresa.com')
+        AllowedDomain.objects.create(company=default_company(), domain='empresa.com')
 
     def test_new_email_sends_invite(self):
         self.client.post(reverse('accounts:request_access'), {'email': 'nuevo@empresa.com'})
@@ -90,7 +103,7 @@ class ActivateTests(TestCase):
         ])
 
     def test_activation_sets_role_and_logs_in(self):
-        AllowedDomain.objects.create(domain='empresa.com', default_role=Role.EXPERTO)
+        AllowedDomain.objects.create(company=default_company(), domain='empresa.com', default_role=Role.EXPERTO)
         u = User.objects.create(username='n@empresa.com', email='n@empresa.com', is_active=False)
         u.set_unusable_password()
         u.save()
@@ -133,19 +146,20 @@ class NextcloudConfigViewTests(TestCase):
         })
         self.assertEqual(r.status_code, 302)
         from attachments.models import NextcloudConfig
-        cfg = NextcloudConfig.load()
+        cfg = NextcloudConfig.for_company(default_company())
         self.assertTrue(cfg.enabled)
         self.assertEqual(cfg.token, 'secreto123')
 
     def test_saving_with_blank_token_keeps_existing(self):
         from attachments.models import NextcloudConfig
-        NextcloudConfig.objects.create(pk=1, enabled=True, base_url='https://x/dav', user='u', token='original')
+        NextcloudConfig.objects.filter(company=default_company()).update(
+            enabled=True, base_url='https://x/dav', user='u', token='original')
         self.client.force_login(self.superuser)
         self.client.post(reverse('accounts:nextcloud_config'), {
             'action': 'save', 'enabled': 'on',
             'base_url': 'https://x/dav', 'user': 'u', 'token': '', 'root': 'R',
         })
-        cfg = NextcloudConfig.load()
+        cfg = NextcloudConfig.for_company(default_company())
         self.assertEqual(cfg.token, 'original')
 
 
@@ -156,7 +170,7 @@ class AccessAdminCoordinatorTests(TestCase):
 
     def _make(self, email, role):
         u = User.objects.create_user(email, email, 'ClaveReal123', is_active=True)
-        Profile.objects.update_or_create(user=u, defaults={'role': role})
+        Profile.objects.update_or_create(user=u, defaults={'role': role, 'company': default_company()})
         return u
 
     def setUp(self):
@@ -238,13 +252,16 @@ class AccessAdminCoordinatorTests(TestCase):
 
     def test_roles_and_config_pages_remain_superuser_only(self):
         self.client.force_login(self.coord)
-        for name in ('accounts:roles_board', 'accounts:nextcloud_config', 'accounts:email_config'):
+        for name in ('accounts:roles_board', 'accounts:nextcloud_config'):
             self.assertEqual(self.client.get(reverse(name)).status_code, 403, name)
+        # El SMTP global vive en el panel de empresas (sin prefijo): a un usuario de
+        # empresa el middleware lo manda de vuelta a su empresa — nunca ve la página.
+        self.assertNotEqual(self.client.get(reverse('companies:email_config')).status_code, 200)
 
 
 @override_settings(**OV)
 class EmailConfigViewTests(TestCase):
-    """Solo el superuser puede ver/editar la config de correo (accounts:email_config)."""
+    """Solo el superuser puede ver/editar la config de correo global (companies:email_config)."""
 
     def setUp(self):
         self.user = User.objects.create_user('u@empresa.com', 'u@empresa.com', 'ClaveReal123', is_active=True)
@@ -252,13 +269,13 @@ class EmailConfigViewTests(TestCase):
 
     def test_non_superuser_redirected(self):
         self.client.force_login(self.user)
-        r = self.client.get(reverse('accounts:email_config'))
+        r = self.client.get(reverse('companies:email_config'))
         self.assertEqual(r.status_code, 302)
 
     def test_superuser_can_view_and_save(self):
         self.client.force_login(self.superuser)
-        self.assertEqual(self.client.get(reverse('accounts:email_config')).status_code, 200)
-        r = self.client.post(reverse('accounts:email_config'), {
+        self.assertEqual(self.client.get(reverse('companies:email_config')).status_code, 200)
+        r = self.client.post(reverse('companies:email_config'), {
             'action': 'save', 'enabled': 'on', 'host': 'smtp.empresa.com', 'port': 465,
             'username': 'bot@empresa.com', 'password': 'secreto123',
             'from_email': 'SkyDesk <noreply@empresa.com>', 'notify_comment': 'on',
@@ -276,7 +293,7 @@ class EmailConfigViewTests(TestCase):
     def test_saving_with_blank_password_keeps_existing(self):
         EmailConfig.objects.create(pk=1, enabled=True, host='smtp.x.com', password='original')
         self.client.force_login(self.superuser)
-        self.client.post(reverse('accounts:email_config'), {
+        self.client.post(reverse('companies:email_config'), {
             'action': 'save', 'enabled': 'on', 'host': 'smtp.x.com', 'port': 587, 'password': '',
         })
         self.assertEqual(EmailConfig.load().password, 'original')
@@ -285,7 +302,7 @@ class EmailConfigViewTests(TestCase):
         # Con `enabled` apagado la prueba usa el backend del settings (locmem en tests):
         # el correo queda en mail.outbox y la config NO se guarda.
         self.client.force_login(self.superuser)
-        r = self.client.post(reverse('accounts:email_config'), {'action': 'test', 'port': 587})
+        r = self.client.post(reverse('companies:email_config'), {'action': 'test', 'port': 587})
         self.assertEqual(r.status_code, 200)
         self.assertEqual(len(mail.outbox), 1)
         self.assertIn(self.superuser.email, mail.outbox[0].to)
@@ -303,9 +320,11 @@ _BRANDING_MEDIA_ROOT = tempfile.mkdtemp(prefix='skydesk-test-branding-')
 
 
 @override_settings(MEDIA_ROOT=_BRANDING_MEDIA_ROOT, **OV)
-class BrandingConfigTests(TestCase):
-    """Logo configurable por el superuser (accounts:branding_config/branding_logo):
-    si solo se sube el claro, el oscuro cae al mismo (ver accounts.views.branding_logo)."""
+class CompanyBrandingTests(TestCase):
+    """Marca POR EMPRESA (Company.brand_name/logo_*/favicon/colores): la edita el
+    superuser en /empresas/<slug>/editar/; el logo lo sirve accounts:branding_logo
+    (si solo se sube el claro, el oscuro cae al mismo) y los colores salen como hoja CSS
+    propia (accounts:company_theme_css) porque la CSP no permite estilos inline."""
 
     @classmethod
     def tearDownClass(cls):
@@ -315,22 +334,37 @@ class BrandingConfigTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user('u@empresa.com', 'u@empresa.com', 'ClaveReal123', is_active=True)
         self.superuser = User.objects.create_superuser('root@empresa.com', 'root@empresa.com', 'ClaveReal123')
+        self.edit_url = reverse('companies:edit', args=[DEFAULT_SLUG])
 
-    def test_non_superuser_redirected(self):
+    def _data(self, **extra):
+        c = default_company()
+        data = {'name': c.name, 'slug': c.slug, 'ticket_prefix': c.ticket_prefix,
+                'is_active': 'on', 'brand_name': c.brand_name}
+        data.update(extra)
+        return data
+
+    def test_non_superuser_cannot_edit_company(self):
         self.client.force_login(self.user)
-        self.assertEqual(self.client.get(reverse('accounts:branding_config')).status_code, 302)
+        self.assertNotEqual(self.client.get(self.edit_url).status_code, 200)
+        self.client.post(self.edit_url, self._data(brand_name='Hackeado'))
+        self.assertNotEqual(default_company().brand_name, 'Hackeado')
 
     def test_logo_missing_returns_404(self):
-        self.assertEqual(self.client.get(reverse('accounts:branding_logo', args=['light'])).status_code, 404)
-        self.assertEqual(self.client.get(reverse('accounts:branding_logo', args=['dark'])).status_code, 404)
+        for variant in ('light', 'dark', 'favicon'):
+            self.assertEqual(self.client.get(reverse('accounts:branding_logo', args=[variant])).status_code, 404)
 
     def test_invalid_variant_returns_404(self):
         self.assertEqual(self.client.get(reverse('accounts:branding_logo', args=['sepia'])).status_code, 404)
 
+    def test_logo_without_company_prefix_returns_404(self):
+        from django.test import Client
+        self.assertEqual(Client().get('/acceso/marca/logo/light/').status_code, 404)
+        self.assertEqual(Client().get('/acceso/marca/tema.css').status_code, 404)
+
     def test_light_only_falls_back_for_dark(self):
         self.client.force_login(self.superuser)
         upload = SimpleUploadedFile('logo.png', _png_bytes(), content_type='image/png')
-        r = self.client.post(reverse('accounts:branding_config'), {'logo_light': upload})
+        r = self.client.post(self.edit_url, self._data(logo_light=upload))
         self.assertEqual(r.status_code, 302)
 
         light = self.client.get(reverse('accounts:branding_logo', args=['light']))
@@ -338,22 +372,65 @@ class BrandingConfigTests(TestCase):
         self.assertEqual(light.status_code, 200)
         self.assertEqual(dark.status_code, 200)
         self.assertEqual(b''.join(dark.streaming_content), b''.join(light.streaming_content))
+        self.assertTrue(default_company().logo_light.name.startswith(f'branding/{DEFAULT_SLUG}/'))
 
     def test_both_uploaded_serve_independently(self):
         self.client.force_login(self.superuser)
-        self.client.post(reverse('accounts:branding_config'), {
-            'logo_light': SimpleUploadedFile('light.png', _png_bytes('red'), content_type='image/png'),
-            'logo_dark': SimpleUploadedFile('dark.png', _png_bytes('blue'), content_type='image/png'),
-        })
+        self.client.post(self.edit_url, self._data(
+            logo_light=SimpleUploadedFile('light.png', _png_bytes('red'), content_type='image/png'),
+            logo_dark=SimpleUploadedFile('dark.png', _png_bytes('blue'), content_type='image/png'),
+        ))
         light = self.client.get(reverse('accounts:branding_logo', args=['light']))
         dark = self.client.get(reverse('accounts:branding_logo', args=['dark']))
         self.assertNotEqual(b''.join(light.streaming_content), b''.join(dark.streaming_content))
+
+    def test_favicon_rejects_svg(self):
+        self.client.force_login(self.superuser)
+        r = self.client.post(self.edit_url, self._data(
+            favicon=SimpleUploadedFile('f.svg', b'<svg/>', content_type='image/svg+xml'),
+        ))
+        self.assertEqual(r.status_code, 200)   # form inválido, re-render
+        self.assertFalse(default_company().favicon)
 
     def test_board_uses_default_logo_when_unconfigured(self):
         self.client.force_login(self.superuser)
         r = self.client.get(reverse('tickets:board'))
         self.assertContains(r, 'img/logo.png')
         self.assertContains(r, 'img/logo-dark.png')
+        self.assertNotContains(r, 'marca/tema.css')
+
+    def test_brand_name_shows_on_login_and_title(self):
+        self.client.force_login(self.superuser)
+        self.client.post(self.edit_url, self._data(brand_name='Embol Tickets'))
+        self.client.logout()
+        r = self.client.get(reverse('accounts:login'))
+        self.assertContains(r, 'Embol Tickets')
+        self.assertContains(r, '· Embol Tickets</title>')
+
+    def test_theme_css_reflects_colors_with_contrast_and_etag(self):
+        self.client.force_login(self.superuser)
+        self.client.post(self.edit_url, self._data(primary_color='#123456', accent_color='#ffee00'))
+        board = self.client.get(reverse('tickets:board'))
+        self.assertContains(board, 'marca/tema.css')
+
+        css_url = reverse('accounts:company_theme_css')
+        r = self.client.get(css_url)
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r['Content-Type'], 'text/css; charset=utf-8')
+        body = r.content.decode()
+        self.assertIn('html[data-theme="light"]{--color-primary:#123456;--color-primary-content:#FFFFFF;', body)
+        self.assertIn('--color-accent:#FFEE00;--color-accent-content:#1A1516;', body)
+        # Sin color oscuro propio, el modo oscuro reusa el claro.
+        self.assertIn('html[data-theme="dark"]{--color-primary:#123456;', body)
+        # Revalidación barata por ETag.
+        r304 = self.client.get(css_url, HTTP_IF_NONE_MATCH=r['ETag'])
+        self.assertEqual(r304.status_code, 304)
+
+    def test_invalid_color_rejected(self):
+        self.client.force_login(self.superuser)
+        r = self.client.post(self.edit_url, self._data(primary_color='rojo'))
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(default_company().primary_color, '')
 
 
 @override_settings(**OV)
@@ -397,11 +474,11 @@ class NextcloudLoginTests(TestCase):
     password de por medio)."""
 
     def setUp(self):
-        NextcloudOAuthConfig.objects.create(
-            pk=1, enabled=True, base_url='https://nube.empresa.com',
+        NextcloudOAuthConfig.objects.filter(company=default_company()).update(
+            enabled=True, base_url='https://nube.empresa.com',
             client_id='cid', client_secret='csecret',
         )
-        AllowedDomain.objects.create(domain='empresa.com')
+        AllowedDomain.objects.create(company=default_company(), domain='empresa.com')
 
     def _token_and_userinfo_mocks(self, email='nuevo@empresa.com', displayname='Nuevo Usuario', uid=''):
         token_resp = Mock(status_code=200)
@@ -422,12 +499,12 @@ class NextcloudLoginTests(TestCase):
     def test_login_view_disabled_redirects_to_login(self):
         NextcloudOAuthConfig.objects.update(enabled=False)
         r = self.client.get(reverse('accounts:nextcloud_login'))
-        self.assertRedirects(r, reverse('accounts:login'))
+        self.assertRedirects(r, p(reverse('accounts:login')))
 
     def test_callback_invalid_state_rejected(self):
         self.client.get(reverse('accounts:nextcloud_login'))
         r = self.client.get(reverse('accounts:nextcloud_callback'), {'code': 'abc', 'state': 'bogus'})
-        self.assertRedirects(r, reverse('accounts:login'))
+        self.assertRedirects(r, p(reverse('accounts:login')))
         self.assertNotIn('_auth_user_id', self.client.session)
 
     @patch('accounts.views.requests.get')
@@ -455,7 +532,7 @@ class NextcloudLoginTests(TestCase):
         mock_post.return_value, mock_get.return_value = self._token_and_userinfo_mocks(email='x@malo.com')
 
         r = self.client.get(reverse('accounts:nextcloud_callback'), {'code': 'abc', 'state': state})
-        self.assertRedirects(r, reverse('accounts:login'))
+        self.assertRedirects(r, p(reverse('accounts:login')))
         self.assertNotIn('_auth_user_id', self.client.session)
         self.assertFalse(User.objects.filter(email='x@malo.com').exists())
 
@@ -468,7 +545,7 @@ class NextcloudLoginTests(TestCase):
         mock_post.return_value, mock_get.return_value = self._token_and_userinfo_mocks(email='ban@empresa.com')
 
         r = self.client.get(reverse('accounts:nextcloud_callback'), {'code': 'abc', 'state': state})
-        self.assertRedirects(r, reverse('accounts:login'))
+        self.assertRedirects(r, p(reverse('accounts:login')))
         self.assertNotIn('_auth_user_id', self.client.session)
 
     def test_callback_disabled_config_404(self):
@@ -508,7 +585,7 @@ class NextcloudUidMismatchMiddlewareTests(TestCase):
     logueado el usuario anterior al cambiar de cuenta en Nextcloud sin recargar SkyDesk."""
 
     def setUp(self):
-        self.user = User.objects.create_user('user@empresa.com', 'user@empresa.com', 'RealPass123')
+        self.user = make_user('user@empresa.com', password='RealPass123')
         Profile.objects.filter(user=self.user).update(nextcloud_uid='user.nc')
         self.client.force_login(self.user)
 
@@ -535,10 +612,10 @@ class DevImpersonationTests(TestCase):
         self.superuser = User.objects.create_superuser('root@empresa.com', 'root@empresa.com', 'x')
         self.other = User.objects.create_user('u@empresa.com', 'u@empresa.com', 'x', is_active=True)
         self.ejecutor = User.objects.create_user('ej@empresa.com', 'ej@empresa.com', 'x', is_active=True)
-        Profile.objects.update_or_create(user=self.ejecutor, defaults={'role': Role.EJECUTOR})
+        Profile.objects.update_or_create(user=self.ejecutor, defaults={'role': Role.EJECUTOR, 'company': default_company()})
 
         from tickets.models import Assignment, Ticket
-        self.ticket = Ticket.objects.create(title='Ticket de ej', reporter=self.superuser)
+        self.ticket = Ticket.objects.create(company=default_company(), title='Ticket de ej', reporter=self.superuser)
         Assignment.objects.create(ticket=self.ticket, user=self.ejecutor, kind=Assignment.Kind.EJECUTOR)
 
     @override_settings(**OV)
@@ -578,11 +655,11 @@ class UserPermissionOverrideTests(TestCase):
 
     def setUp(self):
         self.coord = User.objects.create_user('coord@empresa.com', 'coord@empresa.com', 'x', is_active=True)
-        Profile.objects.update_or_create(user=self.coord, defaults={'role': Role.COORDINADOR})
+        Profile.objects.update_or_create(user=self.coord, defaults={'role': Role.COORDINADOR, 'company': default_company()})
         self.other_coord = User.objects.create_user('c2@empresa.com', 'c2@empresa.com', 'x', is_active=True)
-        Profile.objects.update_or_create(user=self.other_coord, defaults={'role': Role.COORDINADOR})
+        Profile.objects.update_or_create(user=self.other_coord, defaults={'role': Role.COORDINADOR, 'company': default_company()})
         RolePermission.objects.update_or_create(
-            role=Role.COORDINADOR, capability='tickets.view_all', defaults={'enabled': True},
+            company=default_company(), role=Role.COORDINADOR, capability='tickets.view_all', defaults={'enabled': True},
         )
 
     def test_no_override_falls_back_to_role_default(self):
@@ -596,7 +673,7 @@ class UserPermissionOverrideTests(TestCase):
 
     def test_override_true_beats_role_default_false(self):
         RolePermission.objects.update_or_create(
-            role=Role.COORDINADOR, capability='tickets.edit_any', defaults={'enabled': False},
+            company=default_company(), role=Role.COORDINADOR, capability='tickets.edit_any', defaults={'enabled': False},
         )
         UserPermission.objects.create(user=self.coord, capability='tickets.edit_any', enabled=True)
         self.assertTrue(has_capability(self.coord, 'tickets.edit_any'))
@@ -612,9 +689,9 @@ class UserEditPermissionOverrideViewTests(TestCase):
     def setUp(self):
         self.superuser = User.objects.create_superuser('root@empresa.com', 'root@empresa.com', 'x')
         self.coord = User.objects.create_user('coord@empresa.com', 'coord@empresa.com', 'x', is_active=True)
-        Profile.objects.update_or_create(user=self.coord, defaults={'role': Role.COORDINADOR})
+        Profile.objects.update_or_create(user=self.coord, defaults={'role': Role.COORDINADOR, 'company': default_company()})
         self.ejecutor = User.objects.create_user('ej@empresa.com', 'ej@empresa.com', 'x', is_active=True)
-        Profile.objects.update_or_create(user=self.ejecutor, defaults={'role': Role.EJECUTOR})
+        Profile.objects.update_or_create(user=self.ejecutor, defaults={'role': Role.EJECUTOR, 'company': default_company()})
         self.client.force_login(self.superuser)
 
     def test_shows_overrides_section_for_coordinador(self):

@@ -13,8 +13,9 @@ class Project(models.Model):
         PAUSED = 'PAUSED', 'En pausa'
         CLOSED = 'CLOSED', 'Cerrado'
 
+    company = models.ForeignKey('accounts.Company', on_delete=models.CASCADE, related_name='projects')
     name = models.CharField('Nombre', max_length=120)
-    code = models.CharField('Código', max_length=30, unique=True)
+    code = models.CharField('Código', max_length=30)
     city = models.CharField('Ciudad', max_length=120, blank=True)
     status = models.CharField('Estado', max_length=10, choices=Status.choices, default=Status.ACTIVE)
     description = models.TextField('Descripción', blank=True)
@@ -24,6 +25,9 @@ class Project(models.Model):
         ordering = ['name']
         verbose_name = 'Proyecto'
         verbose_name_plural = 'Proyectos'
+        constraints = [
+            models.UniqueConstraint(fields=['company', 'code'], name='tickets_project_company_code_uniq'),
+        ]
 
     def save(self, *args, **kwargs):
         self.code = self.code.strip().upper()
@@ -52,13 +56,17 @@ class Label(models.Model):
         NEUTRAL = 'neutral', 'Gris'
         SECONDARY = 'secondary', 'Secundario'
 
-    name = models.CharField('Nombre', max_length=50, unique=True)
+    company = models.ForeignKey('accounts.Company', on_delete=models.CASCADE, related_name='labels')
+    name = models.CharField('Nombre', max_length=50)
     color = models.CharField('Color', max_length=20, choices=Color.choices, default=Color.NEUTRAL)
 
     class Meta:
         ordering = ['name']
         verbose_name = 'Tipo de Actividad'
         verbose_name_plural = 'Tipos de Actividad'
+        constraints = [
+            models.UniqueConstraint(fields=['company', 'name'], name='tickets_label_company_name_uniq'),
+        ]
 
     def __str__(self):
         return self.name
@@ -79,7 +87,10 @@ class Ticket(models.Model):
         HIGH = 'HIGH', 'Alta'
         URGENT = 'URGENT', 'Urgente'
 
-    code = models.CharField('Código', max_length=20, unique=True, blank=True, default='')
+    company = models.ForeignKey(
+        'accounts.Company', on_delete=models.CASCADE, related_name='tickets', verbose_name='Empresa',
+    )
+    code = models.CharField('Código', max_length=20, blank=True, default='')
     title = models.CharField('Título', max_length=255)
     solicitante = models.CharField('Solicitante', max_length=150, blank=False, default='')
     description = models.TextField('Descripción', blank=True)
@@ -133,23 +144,43 @@ class Ticket(models.Model):
 
     class Meta:
         ordering = ['position', '-created']
+        constraints = [
+            models.UniqueConstraint(fields=['company', 'code'], name='tickets_ticket_company_code_uniq'),
+        ]
 
     def __str__(self):
         return f'{self.key} · {self.title}'
 
     @staticmethod
-    def _next_code():
-        """Correlativo global SKY-0001 (4 dígitos, sigue creciendo)."""
-        nums = [
-            int(c.split('-', 1)[1])
-            for c in Ticket.objects.exclude(code='').values_list('code', flat=True)
-            if c.startswith('SKY-') and c.split('-', 1)[1].isdigit()
-        ]
-        return f'SKY-{(max(nums) + 1) if nums else 1:04d}'
+    def _next_code(company_id):
+        """Correlativo POR EMPRESA `<prefijo>-0001` (4 dígitos, sigue creciendo). El
+        contador vive en `Company.ticket_seq` y se incrementa bajo lock de fila, así dos
+        tickets simultáneos nunca reciben el mismo número y cambiar el prefijo de la
+        empresa no reinicia la numeración. Debe llamarse dentro de transaction.atomic()."""
+        from accounts.models import Company
+        company = Company.objects.select_for_update().get(pk=company_id)
+        company.ticket_seq += 1
+        company.save(update_fields=['ticket_seq'])
+        return f'{company.ticket_prefix}-{company.ticket_seq:04d}'
+
+    def _resolve_company(self):
+        """Empresa del ticket si no vino explícita: la del padre (derivar/dividir) o la del
+        reporter. Un ticket sin empresa no puede existir."""
+        if self.company_id:
+            return
+        if self.parent_id:
+            self.company_id = Ticket.objects.filter(pk=self.parent_id).values_list(
+                'company_id', flat=True).first()
+        if not self.company_id and self.reporter_id:
+            profile = getattr(self.reporter, 'profile', None)
+            if profile and profile.company_id:
+                self.company_id = profile.company_id
+        if not self.company_id:
+            raise ValueError('El ticket necesita una empresa (company).')
 
     def _next_child_code(self):
-        """Correlativo jerárquico colgado del código del padre: SKY-0014-1, SKY-0014-2…
-        Si un hijo se vuelve a subdividir, encadena sobre SU código: SKY-0014-1-1.
+        """Correlativo jerárquico colgado del código del padre: EMBOL-0014-1, EMBOL-0014-2…
+        Si un hijo se vuelve a subdividir, encadena sobre SU código: EMBOL-0014-1-1.
         Robusto ante huecos (children borrados/orfanados por SET_NULL): toma el
         mayor sufijo numérico existente entre los hijos + 1, no el conteo."""
         base = self.code or self.key
@@ -162,10 +193,11 @@ class Ticket(models.Model):
         return f'{base}-{(max(nums) + 1) if nums else 1}'
 
     def create_child(self, **kwargs):
-        """Crea un hijo con código jerárquico (SKY-0014-N), reintentando ante colisión.
-        Fija child.code ANTES de save(), así save() no dispara el correlativo global
-        (solo lo hace cuando code está vacío — ver save())."""
+        """Crea un hijo con código jerárquico (EMBOL-0014-N), reintentando ante colisión.
+        Fija child.code ANTES de save(), así save() no dispara el correlativo de la
+        empresa (solo lo hace cuando code está vacío — ver save())."""
         kwargs.setdefault('parent', self)
+        kwargs.setdefault('company_id', self.company_id)
         for _ in range(5):
             child = Ticket(code=self._next_child_code(), **kwargs)
             try:
@@ -179,15 +211,20 @@ class Ticket(models.Model):
         return child
 
     def save(self, *args, **kwargs):
+        self._resolve_company()
         if not self.code:
+            # El lock de Company en _next_code ya serializa el correlativo; el reintento
+            # queda como defensa ante un código legado que colisione con el siguiente número.
             for _ in range(5):
-                self.code = self._next_code()
                 try:
                     with transaction.atomic():
+                        self.code = self._next_code(self.company_id)
                         return super().save(*args, **kwargs)
                 except IntegrityError:
                     self.code = ''
-            self.code = self._next_code()
+            with transaction.atomic():
+                self.code = self._next_code(self.company_id)
+                return super().save(*args, **kwargs)
         return super().save(*args, **kwargs)
 
     @property
@@ -211,7 +248,7 @@ class Ticket(models.Model):
 
     @property
     def key(self):
-        return self.code or f'SKY-{self.pk}'
+        return self.code or f'#{self.pk}'
 
     def thread_ids(self, max_depth=10):
         """[pk propio + ancestros, de abajo hacia arriba]: el detalle de un derivado /

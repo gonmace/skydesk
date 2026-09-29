@@ -14,6 +14,13 @@ class Attachment(models.Model):
     content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
     object_id = models.PositiveBigIntegerField()
     content_object = GenericForeignKey('content_type', 'object_id')
+    # Empresa dueña (la del ticket): desnormalizada para que borrar el blob (signal
+    # post_delete, en medio de un cascade) y los comandos de mantenimiento sepan con qué
+    # Nextcloud hablar sin resolver el content_object.
+    company = models.ForeignKey(
+        'accounts.Company', null=True, blank=True, on_delete=models.CASCADE,
+        related_name='attachments', verbose_name='Empresa',
+    )
 
     filename = models.CharField('Nombre', max_length=255)
     mime_type = models.CharField('Tipo MIME', max_length=100)
@@ -64,13 +71,17 @@ class Attachment(models.Model):
 
 
 class NextcloudConfig(models.Model):
-    """Config de Nextcloud editable por el superuser (fila única, pk=1).
+    """Config de Nextcloud (WebDAV de adjuntos) editable por el superuser, una fila por
+    empresa: cada cliente conecta su propio Nextcloud.
 
     Si `enabled` está activo, estos valores pisan a los de `.env`/`settings.py` en
-    `attachments.backends.get_backend()`. Si no hay fila o está deshabilitada, se usa
-    la config de entorno (comportamiento actual). El token nunca se re-muestra en
-    pantalla una vez guardado (campo write-only en el form).
+    `attachments.backends.get_backend(company=...)`. Si no hay fila o está deshabilitada,
+    se usa la config de entorno. El token nunca se re-muestra en pantalla una vez
+    guardado (campo write-only en el form).
     """
+    company = models.OneToOneField(
+        'accounts.Company', on_delete=models.CASCADE, related_name='nextcloud_config',
+    )
     enabled = models.BooleanField('Activo', default=False)
     base_url = models.CharField(
         'URL base (WebDAV)', max_length=500, blank=True,
@@ -89,6 +100,6 @@ class NextcloudConfig(models.Model):
         return f'Nextcloud ({"activo" if self.enabled else "inactivo"})'
 
     @classmethod
-    def load(cls):
-        obj, _ = cls.objects.get_or_create(pk=1)
+    def for_company(cls, company):
+        obj, _ = cls.objects.get_or_create(company=company)
         return obj

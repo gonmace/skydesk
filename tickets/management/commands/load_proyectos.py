@@ -1,8 +1,8 @@
-"""Carga/actualiza Proyectos desde un Excel (hoja "Base de datos ").
+"""Carga/actualiza Proyectos de UNA empresa desde un Excel (hoja "Base de datos ").
 
-    python manage.py load_proyectos [--file proyectos_bd.xlsx] [--dry-run]
+    python manage.py load_proyectos --company embol [--file proyectos_bd.xlsx] [--dry-run]
 
-Idempotente: hace update_or_create por `code`, así que se puede volver a
+Idempotente: hace update_or_create por (empresa, `code`), así que se puede volver a
 correr para sincronizar cambios del Excel sin duplicar proyectos.
 """
 from pathlib import Path
@@ -11,6 +11,7 @@ import openpyxl
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
+from accounts.models import Company
 from tickets.models import Project
 
 SHEET_NAME = 'Base de datos '
@@ -36,6 +37,10 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument(
+            '--company', required=True,
+            help='Slug de la empresa dueña de los proyectos (ej. embol).',
+        )
+        parser.add_argument(
             '--file', default=str(Path(settings.BASE_DIR) / 'proyectos_bd.xlsx'),
             help='Ruta al .xlsx (default: proyectos_bd.xlsx en la raíz del proyecto).',
         )
@@ -45,6 +50,9 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        company = Company.objects.filter(slug=options['company']).first()
+        if company is None:
+            raise CommandError(f"No existe la empresa '{options['company']}'.")
         path = Path(options['file'])
         if not path.exists():
             raise CommandError(f'No se encontró el archivo: {path}')
@@ -76,12 +84,12 @@ class Command(BaseCommand):
             city = REGIONAL_CITY.get(regional, regional)
 
             if options['dry_run']:
-                exists = Project.objects.filter(code=code).exists()
+                exists = Project.objects.filter(company=company, code=code).exists()
                 self.stdout.write(f'{"UPDATE" if exists else "CREATE"} {code} · {name} ({city}, {status})')
                 continue
 
             _, was_created = Project.objects.update_or_create(
-                code=code,
+                company=company, code=code,
                 defaults={'name': name, 'city': city, 'status': status},
             )
             if was_created:

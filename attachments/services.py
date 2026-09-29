@@ -105,10 +105,28 @@ def _sanitize_title(text):
     return text.strip('. ')[:80]  # sin puntos/espacios al final (Windows los rechaza)
 
 
+def _ticket_of(content_object):
+    return content_object if hasattr(content_object, 'key') else getattr(content_object, 'ticket', None)
+
+
+def _company_of(content_object):
+    """Empresa dueña del adjunto = la del ticket (directo o vía comentario)."""
+    ticket = _ticket_of(content_object)
+    return getattr(ticket, 'company', None)
+
+
+def _backend_for(attachment):
+    """Backend con las credenciales de la empresa del adjunto (cada cliente tiene su
+    Nextcloud). `Attachment.company` está desnormalizado justamente para esto: se
+    resuelve sin tocar el content_object (que puede estar a medio borrar en un cascade)."""
+    return get_backend(attachment.storage_backend, company=attachment.company)
+
+
 def _folder_for(content_object):
     """Carpeta legible para el objeto dueño: código del ticket + título
-    (ej. 'SKY-1001_Instalación de cableado'), una sola carpeta plana."""
-    ticket = content_object if hasattr(content_object, 'key') else getattr(content_object, 'ticket', None)
+    (ej. 'EMBOL-1001_Instalación de cableado'), una sola carpeta plana. Cada empresa
+    tiene su propio Nextcloud/raíz, así que no hace falta prefijar por empresa."""
+    ticket = _ticket_of(content_object)
     if ticket is not None and hasattr(ticket, 'key'):
         ticket_folder = ticket.key
         title = _sanitize_title(getattr(ticket, 'title', '') or '')
@@ -144,12 +162,14 @@ def store(uploaded_file, *, owner, content_object, backend_name=None):
     if existing:
         raise DuplicateAttachment(existing)
 
-    backend = get_backend(backend_name)
+    company = _company_of(content_object)
+    backend = get_backend(backend_name, company=company)
     filename = _sanitize(uploaded_file.name)
     key = _unique_key(backend, _folder_for(content_object), filename)
     stored_key = backend.save(key, uploaded_file, uploaded_file.content_type)
     return Attachment.objects.create(
         content_object=content_object,
+        company=company,
         filename=filename,
         mime_type=(uploaded_file.content_type or 'application/octet-stream')[:100],
         size=uploaded_file.size or 0,
@@ -162,7 +182,7 @@ def store(uploaded_file, *, owner, content_object, backend_name=None):
 
 def open_blob(attachment):
     """Devuelve (iterador_de_bytes, content_type) para hacer streaming."""
-    backend = get_backend(attachment.storage_backend)
+    backend = _backend_for(attachment)
     stream, content_type = backend.open(attachment.storage_key)
     return stream, content_type or attachment.mime_type
 
@@ -177,7 +197,7 @@ def delete_blob(attachment):
     un receiver de post_delete dentro de la transacción de delete(), la excepción hace
     rollback de todo el borrado — mejor abortarlo que dejar el archivo huérfano en el
     storage con la fila ya borrada."""
-    backend = get_backend(attachment.storage_backend)
+    backend = _backend_for(attachment)
     try:
         backend.delete(attachment.storage_key)
     except Exception:
@@ -201,7 +221,7 @@ def store_version(parent, *, png_bytes, owner, content_object=None):
         mb = _max_size() // (1024 * 1024)
         raise ValidationError(f'La imagen supera el máximo de {mb} MB.')
 
-    backend = get_backend(parent.storage_backend)
+    backend = _backend_for(parent)
     digest = hashlib.sha256(png_bytes).hexdigest()
 
     if content_object is None:
@@ -226,6 +246,7 @@ def store_version(parent, *, png_bytes, owner, content_object=None):
 
     return Attachment.objects.create(
         content_object=content_object,
+        company=parent.company or _company_of(content_object),
         filename=filename,
         mime_type='image/png',
         size=size,

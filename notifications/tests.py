@@ -1,7 +1,7 @@
 from django.contrib.auth import get_user_model
-from django.test import TestCase
 from django.urls import reverse
 
+from core.testing import TenantTestCase as TestCase, make_user
 from tickets.models import Ticket
 
 from .models import Notification
@@ -15,7 +15,7 @@ class NotificationsContextProcessorTests(TestCase):
     de notificaciones, solo tickets/base_app.html lo hace)."""
 
     def setUp(self):
-        self.user = User.objects.create_user('u@e.com', 'u@e.com', 'x', is_active=True)
+        self.user = make_user('u@e.com')
         self.other = User.objects.create_user('o@e.com', 'o@e.com', 'x', is_active=True)
         self.ticket = Ticket.objects.create(title='t', reporter=self.user)
         Notification.objects.create(recipient=self.user, verb='te asignó', actor=self.other,

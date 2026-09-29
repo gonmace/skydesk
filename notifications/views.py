@@ -3,6 +3,8 @@ from django.core.paginator import Paginator
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
+from accounts.tenancy import company_path
+
 from .models import Notification
 
 
@@ -26,12 +28,17 @@ def notifications_list(request):
 
 @login_required
 def open_notification(request, pk):
-    n = get_object_or_404(Notification, pk=pk, recipient=request.user)
+    n = get_object_or_404(
+        Notification.objects.select_related('ticket__company'), pk=pk, recipient=request.user,
+    )
     if not n.is_read:
         n.is_read = True
         n.save(update_fields=['is_read'])
     if n.ticket_id:
-        return redirect('tickets:detail', pk=n.ticket_id)
+        # El ticket vive en SU empresa: un usuario que opera en varias puede abrir desde
+        # /a/ un aviso de un ticket de /b/ — el link lleva el prefijo del ticket, no el
+        # del request (con {% url %}/redirect saldría /a/<pk>/ → 404).
+        return redirect(company_path(n.ticket.company, 'tickets:detail', pk=n.ticket_id))
     return redirect('notifications:list')
 
 

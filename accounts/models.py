@@ -1,7 +1,9 @@
 import os
 
 from django.conf import settings
+from django.core.cache import cache
 from django.core.exceptions import ValidationError
+from django.core.validators import RegexValidator
 from django.db import models
 
 
@@ -27,9 +29,187 @@ RACI_LETTER = {
 }
 
 
+def _validate_logo_size(value):
+    max_bytes = 2 * 1024 * 1024
+    if value.size > max_bytes:
+        raise ValidationError('El logo no puede superar los 2 MB.')
+
+
+def _validate_favicon_ext(value):
+    ext = os.path.splitext(value.name)[1].lower()
+    # SVG a propósito excluido: es XML ejecutable si alguien lo abre directo.
+    if ext not in ('.png', '.ico'):
+        raise ValidationError('El favicon debe ser PNG o ICO.')
+
+
+def _logo_light_path(instance, filename):
+    return f'branding/{instance.slug}/logo-light{os.path.splitext(filename)[1].lower()}'
+
+
+def _logo_dark_path(instance, filename):
+    return f'branding/{instance.slug}/logo-dark{os.path.splitext(filename)[1].lower()}'
+
+
+def _favicon_path(instance, filename):
+    return f'branding/{instance.slug}/favicon{os.path.splitext(filename)[1].lower()}'
+
+
+# Solo para que la migración histórica 0018_brandingconfig siga importando (referencia
+# estas funciones por nombre). BrandingConfig ya no existe: la marca vive en Company.
+def _branding_light_path(instance, filename):  # pragma: no cover — legado
+    return f'branding/logo-light{os.path.splitext(filename)[1].lower()}'
+
+
+def _branding_dark_path(instance, filename):  # pragma: no cover — legado
+    return f'branding/logo-dark{os.path.splitext(filename)[1].lower()}'
+
+
+slug_validator = RegexValidator(
+    r'^[a-z][a-z0-9-]{1,30}$',
+    'Solo minúsculas, números y guiones (2 a 31 caracteres), empezando con una letra.',
+)
+ticket_prefix_validator = RegexValidator(r'^[A-Z]{2,6}$', 'Entre 2 y 6 letras mayúsculas, ej. EMBOL.')
+hex_color_validator = RegexValidator(r'^#[0-9A-Fa-f]{6}$', 'Color hexadecimal de 6 dígitos, ej. #E4002B.')
+
+# Primer segmento de ruta que NUNCA puede ser slug de empresa: son rutas propias del
+# servidor (ver accounts.tenancy.CompanyMiddleware) o del urlconf raíz sin prefijo.
+RESERVED_SLUGS = frozenset({
+    'static', 'media', 'ws', 'empresas', 'admin', 'robots.txt', 'sitemap.xml', '__reload__',
+})
+
+COMPANY_CACHE_KEY = 'company:slug:{}'
+
+
+class Company(models.Model):
+    """Empresa cliente (tenant). Todo dato operativo cuelga de una empresa y las
+    empresas no se ven entre sí. Se identifica en la URL por el prefijo `/<slug>/`
+    (ver accounts.tenancy). Solo el superuser (global, sin empresa) las crea."""
+    name = models.CharField('Nombre', max_length=120)
+    slug = models.SlugField(
+        'Identificador en la URL', max_length=31, unique=True, validators=[slug_validator],
+        help_text='Prefijo de todas las rutas de la empresa, ej. "embol" → /embol/. '
+                  'Cambiarlo invalida los links ya enviados por correo.',
+    )
+    is_active = models.BooleanField(
+        'Activa', default=True,
+        help_text='Desactivada: nadie de la empresa puede entrar (sus datos se conservan).',
+    )
+    ticket_prefix = models.CharField(
+        'Prefijo de tickets', max_length=6, unique=True, validators=[ticket_prefix_validator],
+        help_text='Ej. EMBOL → EMBOL-0001. Cambiarlo no renumera: el correlativo sigue.',
+    )
+    ticket_seq = models.PositiveIntegerField('Último correlativo', default=0)
+
+    # ── Marca ──
+    brand_name = models.CharField(
+        'Nombre de marca', max_length=60, default='SkyDesk',
+        help_text='Título de la pestaña, pantalla de login y firma de los correos.',
+    )
+    logo_light = models.ImageField(
+        'Logo (tema claro)', upload_to=_logo_light_path, blank=True,
+        validators=[_validate_logo_size],
+        help_text='PNG/JPG/WEBP, máx. 2 MB. Vacío = logo por defecto.',
+    )
+    logo_dark = models.ImageField(
+        'Logo (tema oscuro)', upload_to=_logo_dark_path, blank=True,
+        validators=[_validate_logo_size], help_text='Vacío = se usa el logo del tema claro.',
+    )
+    favicon = models.FileField(
+        'Favicon', upload_to=_favicon_path, blank=True,
+        validators=[_validate_logo_size, _validate_favicon_ext],
+        help_text='PNG o ICO. Vacío = favicon por defecto.',
+    )
+    primary_color = models.CharField(
+        'Color primario (claro)', max_length=7, blank=True, validators=[hex_color_validator],
+        help_text='Botones, links y acentos de marca. Vacío = el del tema por defecto.',
+    )
+    primary_color_dark = models.CharField(
+        'Color primario (oscuro)', max_length=7, blank=True, validators=[hex_color_validator],
+        help_text='Vacío = se usa el color primario claro también en modo oscuro.',
+    )
+    accent_color = models.CharField(
+        'Color de acento (claro)', max_length=7, blank=True, validators=[hex_color_validator],
+    )
+    accent_color_dark = models.CharField(
+        'Color de acento (oscuro)', max_length=7, blank=True, validators=[hex_color_validator],
+    )
+
+    # ── Correo ──
+    email_from_name = models.CharField(
+        'Nombre del remitente', max_length=100, blank=True,
+        help_text='Ej. "Embol Tickets". Vacío = el remitente del servidor.',
+    )
+    email_from = models.EmailField(
+        'Correo del remitente', blank=True,
+        help_text='Debe estar autorizado en el SMTP del servidor. Vacío = el del servidor.',
+    )
+
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['name']
+        verbose_name = 'Empresa'
+        verbose_name_plural = 'Empresas'
+
+    def __str__(self):
+        return self.name
+
+    @classmethod
+    def from_db(cls, db, field_names, values):
+        obj = super().from_db(db, field_names, values)
+        obj._loaded_slug = obj.__dict__.get('slug')
+        return obj
+
+    def clean(self):
+        super().clean()
+        slug = (self.slug or '').strip().lower()
+        if slug in RESERVED_SLUGS or slug.isdigit():
+            raise ValidationError({'slug': f'"{slug}" está reservado por el sistema.'})
+        # Un slug que coincide con una ruta del urlconf raíz (acceso/, proyectos/, nuevo/…)
+        # la taparía para todas las empresas.
+        from django.urls import is_valid_path
+        if slug and is_valid_path(f'/{slug}/'):
+            raise ValidationError({'slug': f'"{slug}" coincide con una ruta de la aplicación.'})
+
+    def save(self, *args, **kwargs):
+        self.slug = (self.slug or '').strip().lower()
+        self.ticket_prefix = (self.ticket_prefix or '').strip().upper()
+        super().save(*args, **kwargs)
+        update_fields = kwargs.get('update_fields')
+        # El correlativo se incrementa en cada ticket nuevo: no vale la pena tirar el cache
+        # por eso (nadie lee ticket_seq del objeto cacheado — ver Ticket._next_code).
+        if update_fields is None or set(update_fields) != {'ticket_seq'}:
+            self.invalidate_cache()
+
+    def delete(self, *args, **kwargs):
+        self.invalidate_cache()
+        return super().delete(*args, **kwargs)
+
+    def invalidate_cache(self):
+        keys = {COMPANY_CACHE_KEY.format(self.slug)}
+        old = getattr(self, '_loaded_slug', None)
+        if old:
+            keys.add(COMPANY_CACHE_KEY.format(old))
+        try:
+            cache.delete_many(list(keys))
+        except Exception:  # Redis caído: el TTL corto (5 min) termina de limpiar
+            pass
+        self._loaded_slug = self.slug
+
+    @property
+    def has_custom_colors(self):
+        return bool(self.primary_color or self.accent_color)
+
+    def theme_version(self):
+        """Cache-bust para logos/CSS por empresa: cambia en cada guardado."""
+        return int(self.updated.timestamp()) if self.updated else 0
+
+
 class AllowedDomain(models.Model):
     """Dominio de correo habilitado para solicitar acceso (ej. 'empresa.com')."""
-    domain = models.CharField('Dominio', max_length=255, unique=True)
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name='allowed_domains')
+    domain = models.CharField('Dominio', max_length=255)
     is_active = models.BooleanField('Activo', default=True)
     default_role = models.CharField(
         'Rol por defecto', max_length=20, choices=Role.choices, blank=True,
@@ -46,6 +226,9 @@ class AllowedDomain(models.Model):
         ordering = ['domain']
         verbose_name = 'Dominio permitido'
         verbose_name_plural = 'Dominios permitidos'
+        constraints = [
+            models.UniqueConstraint(fields=['company', 'domain'], name='accounts_alloweddomain_company_domain_uniq'),
+        ]
 
     def save(self, *args, **kwargs):
         self.domain = self.domain.strip().lower().lstrip('@')
@@ -57,7 +240,8 @@ class AllowedDomain(models.Model):
 
 class AllowedEmail(models.Model):
     """Correo puntual habilitado (excepción a un dominio no listado)."""
-    email = models.EmailField('Correo', unique=True)
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name='allowed_emails')
+    email = models.EmailField('Correo')
     is_active = models.BooleanField('Activo', default=True)
     default_role = models.CharField(
         'Rol por defecto', max_length=20, choices=Role.choices, blank=True,
@@ -73,6 +257,9 @@ class AllowedEmail(models.Model):
         ordering = ['email']
         verbose_name = 'Correo permitido'
         verbose_name_plural = 'Correos permitidos'
+        constraints = [
+            models.UniqueConstraint(fields=['company', 'email'], name='accounts_allowedemail_company_email_uniq'),
+        ]
 
     def save(self, *args, **kwargs):
         self.email = self.email.strip().lower()
@@ -83,9 +270,23 @@ class AllowedEmail(models.Model):
 
 
 class Profile(models.Model):
-    """Datos extra del usuario — principalmente su rol en el sistema."""
+    """Datos extra del usuario — su empresa y su rol en el sistema."""
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='profile',
+    )
+    # Null solo para el superuser global (administra todas las empresas). Cualquier
+    # usuario operativo tiene UNA empresa principal (a donde cae al entrar sin prefijo)
+    # y, esporádicamente, empresas adicionales donde también opera con el MISMO rol.
+    # Para saber si puede entrar a /<slug>/ usar accounts.tenancy.is_member / members_q,
+    # nunca comparar `company` a mano.
+    company = models.ForeignKey(
+        Company, null=True, blank=True, on_delete=models.CASCADE, related_name='profiles',
+        verbose_name='Empresa principal',
+    )
+    extra_companies = models.ManyToManyField(
+        Company, blank=True, related_name='extra_member_profiles',
+        verbose_name='Empresas adicionales',
+        help_text='Empresas donde el usuario también opera, además de su principal. Mismo rol.',
     )
     role = models.CharField('Rol', max_length=20, choices=Role.choices, default=Role.EJECUTOR)
     created = models.DateTimeField(auto_now_add=True)
@@ -104,8 +305,8 @@ class Profile(models.Model):
 
 
 class NextcloudOAuthConfig(models.Model):
-    """Config de login "Iniciar sesión con Nextcloud" (fila única, pk=1), editable por el
-    superuser. Separada de `attachments.NextcloudConfig` a propósito: esa guarda un
+    """Config de login "Iniciar sesión con Nextcloud" (una fila por empresa), editable por
+    el superuser. Separada de `attachments.NextcloudConfig` a propósito: esa guarda un
     app-password de una cuenta de servicio para WebDAV (storage de adjuntos); esta guarda
     credenciales OAuth2 (client_id/secret) para autenticar usuarios finales — son
     credenciales de naturaleza y dueño distintos, aunque apunten al mismo servidor.
@@ -115,6 +316,7 @@ class NextcloudOAuthConfig(models.Model):
     Si el Nextcloud tiene la app OIDC completa, `userinfo_url` (y opcionalmente las otras
     dos) se pueden sobreescribir sin tocar código.
     """
+    company = models.OneToOneField(Company, on_delete=models.CASCADE, related_name='nextcloud_oauth')
     enabled = models.BooleanField('Activo', default=False)
     base_url = models.CharField(
         'URL base de Nextcloud', max_length=500, blank=True,
@@ -144,8 +346,8 @@ class NextcloudOAuthConfig(models.Model):
         return f'Login Nextcloud ({"activo" if self.enabled else "inactivo"})'
 
     @classmethod
-    def load(cls):
-        obj, _ = cls.objects.get_or_create(pk=1)
+    def for_company(cls, company):
+        obj, _ = cls.objects.get_or_create(company=company)
         return obj
 
     def resolved_authorize_url(self):
@@ -203,60 +405,17 @@ class EmailConfig(models.Model):
         return obj
 
 
-def _validate_logo_size(value):
-    max_bytes = 2 * 1024 * 1024
-    if value.size > max_bytes:
-        raise ValidationError('El logo no puede superar los 2 MB.')
-
-
-def _branding_light_path(instance, filename):
-    return f'branding/logo-light{os.path.splitext(filename)[1].lower()}'
-
-
-def _branding_dark_path(instance, filename):
-    return f'branding/logo-dark{os.path.splitext(filename)[1].lower()}'
-
-
-class BrandingConfig(models.Model):
-    """Logo de la app (fila única, pk=1), editable por el superuser. Reemplaza el logo
-    estático (static/img/logo.png y logo-dark.png) que se ve arriba a la izquierda en
-    toda la app autenticada; un campo vacío cae al logo por defecto de SkyDesk (ver
-    `accounts.context_processors.nav_flags` y `tickets/base_app.html`). Se sirve por
-    `accounts.views.branding_logo` en vez de la URL de MEDIA_ROOT: nginx no expone
-    `/media/` en producción (ver el comentario en `nginx.conf` sobre los adjuntos)."""
-    logo_light = models.ImageField(
-        'Logo (tema claro)', upload_to=_branding_light_path, blank=True,
-        validators=[_validate_logo_size],
-        help_text='PNG/JPG/WEBP, máx. 2 MB. Vacío = logo por defecto de SkyDesk.',
-    )
-    logo_dark = models.ImageField(
-        'Logo (tema oscuro)', upload_to=_branding_dark_path, blank=True,
-        validators=[_validate_logo_size],
-        help_text='Vacío = logo por defecto de SkyDesk.',
-    )
-    updated = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        verbose_name = 'Configuración de logo'
-        verbose_name_plural = 'Configuración de logo'
-
-    def __str__(self):
-        return 'Logo personalizado' if (self.logo_light or self.logo_dark) else 'Logo por defecto'
-
-    @classmethod
-    def load(cls):
-        obj, _ = cls.objects.get_or_create(pk=1)
-        return obj
-
-
 class RolePermission(models.Model):
-    """Matriz rol × capacidad, editable por el superuser en el tablero de toggles."""
+    """Matriz rol × capacidad POR EMPRESA, editable por el superuser en el tablero de
+    toggles. Al crear una empresa se copia la matriz de otra (o los defaults de código)
+    — ver accounts.services.create_company."""
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name='role_permissions')
     role = models.CharField(max_length=20, choices=Role.choices)
     capability = models.CharField(max_length=50)
     enabled = models.BooleanField(default=False)
 
     class Meta:
-        unique_together = ('role', 'capability')
+        unique_together = ('company', 'role', 'capability')
         ordering = ['role', 'capability']
         verbose_name = 'Permiso de rol'
         verbose_name_plural = 'Permisos de roles'

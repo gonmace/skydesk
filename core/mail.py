@@ -28,7 +28,13 @@ def get_mail_connection():
     )
 
 
-def resolve_from_email():
+def resolve_from_email(company=None):
+    """Remitente: el de la empresa si lo definió (multi-tenant: cada cliente firma sus
+    correos), si no el de EmailConfig (SMTP global) y por último el del settings."""
+    if company is not None and company.email_from:
+        if company.email_from_name:
+            return f'{company.email_from_name} <{company.email_from}>'
+        return company.email_from
     from accounts.models import EmailConfig
     cfg = EmailConfig.load()
     if cfg.enabled and cfg.from_email:
@@ -36,31 +42,32 @@ def resolve_from_email():
     return settings.DEFAULT_FROM_EMAIL
 
 
-def send_mail_now(subject, message, recipient_list, from_email=None):
+def send_mail_now(subject, message, recipient_list, from_email=None, company=None):
     """Envía en el request (síncrono) con fail_silently=False: propaga la excepción
     de SMTP para que el llamador la muestre. Usar solo donde el usuario espera ver
     el resultado del envío en el momento (p.ej. solicitar acceso) — en el resto de
     los casos preferir `send_mail_async` para no retener el request con un SMTP lento.
     """
     connection = get_mail_connection()
-    from_email = from_email or resolve_from_email()
+    from_email = from_email or resolve_from_email(company)
     send_mail(subject, message, from_email, recipient_list,
                connection=connection, fail_silently=False)
 
 
-def send_mail_async(subject, message, recipient_list, from_email=None):
+def send_mail_async(subject, message, recipient_list, from_email=None, company=None):
     """`send_mail` en un thread daemon: el request responde sin esperar al SMTP.
 
     La conexión y el remitente se resuelven acá (queries a EmailConfig incluidas)
     para que dentro del thread no se toque ni el ORM ni el request. Trade-off
     asumido: un reinicio del proceso en el instante justo pierde el email pendiente
-    — aceptable para notificaciones.
+    — aceptable para notificaciones. Los links del cuerpo deben armarse ANTES de
+    llamar (nunca `reverse()` dentro del thread: no tiene el prefijo de empresa).
 
     Con backend locmem (tests) envía inline: los asserts sobre `mail.outbox`
     corren inmediatamente después del post y un thread sería una carrera.
     """
     connection = get_mail_connection()
-    from_email = from_email or resolve_from_email()
+    from_email = from_email or resolve_from_email(company)
 
     def _send():
         try:

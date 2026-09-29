@@ -1,11 +1,16 @@
-"""Factory de backends de almacenamiento, configurable por settings."""
+"""Factory de backends de almacenamiento, configurable por settings y por empresa."""
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.utils.module_loading import import_string
 
 
-def get_backend(name=None):
-    """Devuelve una instancia del backend `name` (o el por defecto).
+def get_backend(name=None, company=None):
+    """Devuelve una instancia del backend `name` (o el por defecto) para `company`.
+
+    Multi-empresa: cada cliente conecta su propio Nextcloud (`attachments.NextcloudConfig`
+    por empresa pisa a la config de `.env`), y en el backend `local` cada empresa escribe
+    bajo su propia subcarpeta (`<root>/<slug>`). Sin `company` se usa la config de entorno
+    tal cual (tests, comandos globales).
 
     Configuración en settings::
 
@@ -27,15 +32,20 @@ def get_backend(name=None):
     options = dict(cfg.get('OPTIONS', {}))
     options.setdefault('name', name)
     if name == 'nextcloud':
-        options.update(_nextcloud_db_overrides())
+        options.update(_nextcloud_db_overrides(company))
+    elif name == 'local' and company is not None:
+        options['root'] = f"{options.get('root', 'demo_attachments')}/{company.slug}"
     return cls(**options)
 
 
-def _nextcloud_db_overrides():
-    """Config de BD (superuser, `NextcloudConfig`) pisa a la de `.env` si está activa."""
+def _nextcloud_db_overrides(company):
+    """Config de BD de la empresa (superuser, `NextcloudConfig`) pisa a la de `.env` si
+    está activa."""
+    if company is None:
+        return {}
     from .. import models  # import perezoso: evita ciclos en el arranque de la app
     try:
-        cfg = models.NextcloudConfig.objects.filter(pk=1, enabled=True).first()
+        cfg = models.NextcloudConfig.objects.filter(company=company, enabled=True).first()
     except Exception:
         # Tabla no migrada todavía (ej. durante el propio makemigrations/migrate).
         return {}

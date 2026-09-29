@@ -1,7 +1,7 @@
 from django import forms
 from django.contrib.auth import get_user_model
 
-from .models import Comment, Project, Ticket
+from .models import Comment, Label, Project, Ticket
 
 User = get_user_model()
 
@@ -57,12 +57,21 @@ class TicketForm(forms.ModelForm):
             'has_subproducts': forms.CheckboxInput(attrs={'class': 'toggle toggle-primary'}),
         }
 
-    def __init__(self, *args, can_assign=True, user=None, **kwargs):
+    def __init__(self, *args, can_assign=True, user=None, company=None, **kwargs):
         super().__init__(*args, **kwargs)
         from django.db.models import Q
 
         from accounts.models import Role
+        from accounts.tenancy import members_q
+        # Alcance por empresa: proyectos, tipos de actividad y personas asignables son
+        # SOLO los de la empresa del request (el POST tampoco acepta ids ajenos: el
+        # queryset es lo que valida el ModelChoiceField).
+        if company is None and self.instance is not None and self.instance.pk:
+            company = self.instance.company
+        self.company = company
         self.fields['due_date'].input_formats = ['%Y-%m-%d']
+        self.fields['project'].queryset = Project.objects.filter(company=company)
+        self.fields['labels'].queryset = Label.objects.filter(company=company)
         # Los ya asignados entran al queryset aunque estén dados de baja: si el checkbox
         # de un inactivo no se renderizara, guardar cualquier edición lo desasignaría
         # en silencio (el form lo interpretaría como desmarcado).
@@ -75,16 +84,18 @@ class TicketForm(forms.ModelForm):
         # `user` (quien edita) queda fuera del queryset, así que elegirse a sí mismo
         # tampoco pasa la validación del POST. Si OTRO coordinador ya lo asignó, entra
         # por assigned_exec_ids y sigue visible/tildado al editar.
-        coord_q = Q(is_active=True, profile__role=Role.COORDINADOR)
+        # Miembros de la empresa: principal o adicional (join M2M → distinct).
+        same_company = members_q(company)
+        coord_q = Q(is_active=True, profile__role=Role.COORDINADOR) & same_company
         if user is not None:
             coord_q &= ~Q(pk=user.pk)
         self.fields['executors'].queryset = User.objects.filter(
-            Q(is_active=True, profile__role=Role.EJECUTOR) | coord_q
+            (Q(is_active=True, profile__role=Role.EJECUTOR) & same_company) | coord_q
             | Q(pk__in=assigned_exec_ids)
-        ).order_by('first_name', 'email')
+        ).distinct().order_by('first_name', 'email')
         self.fields['experts'].queryset = User.objects.filter(
-            Q(is_active=True, profile__role=Role.EXPERTO) | Q(pk__in=assigned_expert_ids)
-        ).order_by('first_name', 'email')
+            (Q(is_active=True, profile__role=Role.EXPERTO) & same_company) | Q(pk__in=assigned_expert_ids)
+        ).distinct().order_by('first_name', 'email')
         self.fields['executors'].label_from_instance = _user_label
         self.fields['experts'].label_from_instance = _user_label
         self.fields['project'].label_from_instance = _project_label
@@ -106,6 +117,29 @@ class ProjectForm(forms.ModelForm):
             'status': forms.Select(attrs={'class': _SELECT}),
             'description': forms.Textarea(attrs={'class': _TEXTAREA, 'rows': 2}),
         }
+
+    def __init__(self, *args, company=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if company is None and self.instance is not None and self.instance.pk:
+            company = self.instance.company
+        self.company = company
+
+    def clean_code(self):
+        # Unicidad por (company, code): `company` no es campo del form, así que
+        # validate_unique() de ModelForm no la chequea — sin esto, un código repetido
+        # reventaba con IntegrityError en vez de mostrarse como error del form.
+        code = (self.cleaned_data.get('code') or '').strip().upper()
+        qs = Project.objects.filter(company=self.company, code=code)
+        if self.instance.pk:
+            qs = qs.exclude(pk=self.instance.pk)
+        if qs.exists():
+            raise forms.ValidationError('Ya existe un proyecto con ese código.')
+        return code
+
+    def save(self, commit=True):
+        if self.company is not None:
+            self.instance.company = self.company
+        return super().save(commit=commit)
 
 
 class CommentForm(forms.ModelForm):
