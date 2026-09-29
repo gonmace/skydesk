@@ -1,6 +1,8 @@
-{# Campos del formulario de correo saliente (EmailConfig, global del servidor). Lo comparten
-   /empresas/correo/ (email_config.html) y la sección "Correo saliente" de Cuentas
-   (access_admin.html). Espera `form` (EmailConfigForm); el <form> lo pone el que incluye. #}
+{% comment %}
+Campos del formulario de correo saliente (EmailConfig, global del servidor). Lo comparten
+/empresas/correo/ (email_config.html) y la sección "Correo saliente" de Cuentas
+(access_admin.html). Espera `form` (EmailConfigForm); el <form> lo pone el que incluye.
+{% endcomment %}
 {% if email_source %}
 <div class="alert {% if email_source.source == 'console' %}alert-warning{% else %}alert-info{% endif %} text-sm py-2 flex-wrap">
   <div>

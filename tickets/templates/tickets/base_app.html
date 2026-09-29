@@ -141,8 +141,10 @@
               <li><a href="{% url 'tickets:archived' %}">Archivados</a></li>
               {% endif %}
               {% if nav_companies %}
-                {# Usuario que opera en más de una empresa: cada opción va al tablero de esa
-                   empresa con SU prefijo (ver accounts.context_processors.nav_flags). #}
+                {% comment %}
+                Usuario que opera en más de una empresa: cada opción va al tablero de esa
+                empresa con SU prefijo (ver accounts.context_processors.nav_flags).
+                {% endcomment %}
                 <li class="menu-title text-xs pt-2">Cambiar de empresa</li>
                 {% for item in nav_companies %}
                   <li>
