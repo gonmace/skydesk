@@ -55,9 +55,10 @@ services:
     networks:
       - app_network
     healthcheck:
-      # Cualquier respuesta HTTP < 500 vale (un 400 por Host header también prueba que
-      # gunicorn atiende). Sin curl en python:slim — se usa la stdlib.
-      test: ["CMD-SHELL", "python -c \"import http.client; c=http.client.HTTPConnection('localhost', 8000, timeout=5); c.request('GET', '/robots.txt'); exit(0 if c.getresponse().status < 500 else 1)\""]
+      # Manda el Host del dominio (DOMAIN del .env): sin él Django responde 400
+      # DisallowedHost y, con django.security en los logs, cada chequeo dejaba un
+      # traceback cada 30 s. Cualquier respuesta < 500 vale. Sin curl en python:slim.
+      test: ["CMD-SHELL", "python -c \"import http.client; c=http.client.HTTPConnection('localhost', 8000, timeout=5); c.request('GET', '/robots.txt', headers={'Host': '${DOMAIN:-localhost}'}); exit(0 if c.getresponse().status < 500 else 1)\""]
       interval: 30s
       timeout: 10s
       retries: 3
