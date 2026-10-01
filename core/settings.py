@@ -190,6 +190,13 @@ else:
 
 DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='Kanban Tickets <noreply@example.com>')
 
+# Nombre del EHLO/HELO al SMTP. Django usa socket.getfqdn(), que en Docker es el id del
+# contenedor y muchos SMTP lo rechazan (550 Invalid HELO name). Por defecto, el dominio de la app.
+EMAIL_HELO_NAME = config('EMAIL_HELO_NAME', default=_site_host)
+if EMAIL_HELO_NAME:
+    from django.core.mail.utils import DNS_NAME
+    DNS_NAME._fqdn = EMAIL_HELO_NAME
+
 # ── Adjuntos (almacenamiento intercambiable) ─────────────────────────────────
 # Hoy TODOS los adjuntos van a Nextcloud; la abstracción permite migrar a S3/CDN a futuro.
 ATTACHMENT_DEFAULT_BACKEND = config('ATTACHMENT_DEFAULT_BACKEND', default='nextcloud')
