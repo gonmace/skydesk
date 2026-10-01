@@ -1,0 +1,1317 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SkyDesk — Tutorial de tickets</title>
+<style>
+  /* ══ Paleta wom (espejo de theme/static_src/src/styles.css) ══ */
+  :root {
+    --base-100: oklch(99% 0.002 25);
+    --base-200: oklch(96.5% 0.004 25);
+    --base-300: oklch(90% 0.006 25);
+    --ink: #1A1516;
+    --primary: #E4002B;
+    --secondary: #3A3133;
+    --accent: #D1A23C;
+    --info: #1273B8;
+    --success: #2F7D4F;
+    --warning: #E07B00;
+    --error: #A8071A;
+    --edit: #C2521A;
+    --shell: var(--base-200);
+    --card-shadow:
+      inset 0 1px 0 rgba(255,255,255,.60),
+      0 1px 2px rgba(0,0,0,.04),
+      0 3px 8px rgba(0,0,0,.07),
+      0 8px 20px rgba(0,0,0,.05);
+    --radius-box: .875rem;
+    --radius-badge: .375rem;
+    --av0-bg: hsl(0 75% 88%);   --av0-fg: hsl(0 55% 32%);   --av0-bd: hsl(0 60% 78%);
+    --av3-bg: hsl(150 55% 85%); --av3-fg: hsl(150 45% 26%); --av3-bd: hsl(150 45% 68%);
+    --av5-bg: hsl(220 70% 90%); --av5-fg: hsl(220 55% 35%); --av5-bd: hsl(220 55% 78%);
+    --av6-bg: hsl(265 60% 90%); --av6-fg: hsl(265 45% 35%); --av6-bd: hsl(265 45% 78%);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --base-100: #272122;
+      --base-200: #342C2E;
+      --base-300: #463C3E;
+      --ink: #F4F0F1;
+      --primary: #FF2233;
+      --secondary: #B9B0B2;
+      --accent: #E6BC5A;
+      --info: #3AA0E0;
+      --success: #46C47E;
+      --warning: #F5A623;
+      --error: #FF5A52;
+      --edit: #F08A4B;
+      --shell: #181314;
+      --card-shadow:
+        inset 0 1px 0 rgba(255,255,255,.06),
+        0 1px 2px rgba(0,0,0,.30),
+        0 3px 8px rgba(0,0,0,.35),
+        0 8px 20px rgba(0,0,0,.25);
+      --av0-bg: hsl(0 40% 24%);   --av0-fg: hsl(0 75% 84%);   --av0-bd: hsl(0 40% 38%);
+      --av3-bg: hsl(150 35% 19%); --av3-fg: hsl(150 50% 76%); --av3-bd: hsl(150 35% 33%);
+      --av5-bg: hsl(220 45% 25%); --av5-fg: hsl(220 70% 84%); --av5-bd: hsl(220 45% 40%);
+      --av6-bg: hsl(265 35% 26%); --av6-fg: hsl(265 60% 86%); --av6-bd: hsl(265 35% 42%);
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--shell);
+    color: var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.6;
+    font-size: 16px;
+  }
+  main { max-width: 64rem; margin: 0 auto; padding: 1rem 1rem 4rem; counter-reset: sec; }
+
+  /* ══ Encabezado ══ */
+  header.hero { max-width: 64rem; margin: 0 auto; padding: 2.5rem 1rem 1rem; }
+  header.hero h1 { margin: 0; font-size: clamp(1.6rem, 4vw, 2.2rem); font-weight: 900; letter-spacing: -0.02em; }
+  header.hero h1 .brand { color: var(--primary); }
+  header.hero p { margin: .35rem 0 0; color: color-mix(in oklab, var(--ink) 55%, transparent); font-size: .95rem; }
+
+  /* ══ Selector de rol (sticky) ══ */
+  .role-bar {
+    position: sticky; top: 0; z-index: 50;
+    background: color-mix(in oklab, var(--shell) 88%, transparent);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--base-300);
+    padding: .6rem 1rem;
+  }
+  .role-bar-inner { max-width: 64rem; margin: 0 auto; display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; }
+  .role-bar-inner > span { font-size: .8rem; font-weight: 700; margin-right: .25rem; color: color-mix(in oklab, var(--ink) 60%, transparent); }
+  .chip {
+    --role-color: var(--ink);
+    appearance: none; cursor: pointer;
+    font: inherit; font-size: .8rem; font-weight: 700;
+    padding: .3rem .75rem; border-radius: 9999px;
+    border: 1px solid color-mix(in srgb, var(--role-color) 30%, transparent);
+    background: color-mix(in srgb, var(--role-color) 12%, transparent);
+    color: var(--role-color);
+    transition: background .12s ease, box-shadow .12s ease;
+    white-space: nowrap;
+  }
+  .chip:hover { background: color-mix(in srgb, var(--role-color) 22%, transparent); }
+  .chip[aria-pressed="true"] { background: var(--role-color); color: var(--base-100); box-shadow: 0 2px 8px color-mix(in srgb, var(--role-color) 40%, transparent); }
+  .chip[data-role="COORDINADOR"] { --role-color: var(--primary); }
+  .chip[data-role="EJECUTOR"]    { --role-color: var(--success); }
+  .chip[data-role="EXPERTO"]     { --role-color: var(--info); }
+  .chip[data-role="SEGUIMIENTO"] { --role-color: var(--accent); }
+
+  /* ══ Cards de sección ══ */
+  section.card {
+    background: var(--base-100);
+    border: 1px solid var(--base-300);
+    border-radius: 1rem;
+    box-shadow: var(--card-shadow);
+    padding: 1.4rem 1.5rem;
+    margin-top: 1.4rem;
+  }
+  section.card > h2 {
+    margin: 0 0 .8rem;
+    font-size: 1.25rem; font-weight: 900; letter-spacing: -0.01em;
+    display: flex; align-items: center; gap: .55rem; flex-wrap: wrap;
+  }
+  section.card h3 { margin: 1.3rem 0 .4rem; font-size: 1rem; font-weight: 800; }
+  section.card > h2 .num {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 1.7rem; height: 1.7rem; border-radius: .55rem; font-size: .9rem;
+    background: color-mix(in srgb, var(--primary) 15%, transparent);
+    color: var(--primary);
+    border: 1px solid color-mix(in srgb, var(--primary) 30%, transparent);
+  }
+  /* Numeración automática: las secciones ocultas por el filtro de rol no cuentan */
+  section.card > h2 .num::before { counter-increment: sec; content: counter(sec); }
+  p, li { color: color-mix(in oklab, var(--ink) 88%, transparent); }
+  ul, ol { padding-left: 1.2rem; margin: .4rem 0; }
+  li { margin: .25rem 0; }
+  ul li::marker { color: var(--primary); }
+  strong { color: var(--ink); }
+  kbd.ui {
+    font-family: inherit; font-size: .85em; font-weight: 700; font-style: normal;
+    padding: .05rem .4rem; border-radius: .4rem;
+    background: color-mix(in oklab, var(--ink) 7%, transparent);
+    border: 1px solid color-mix(in oklab, var(--ink) 15%, transparent);
+    white-space: nowrap;
+  }
+
+  /* Badges de rol y estado */
+  .badge-role {
+    --role-color: var(--secondary);
+    font-size: .65rem; font-weight: 700; letter-spacing: .02em;
+    padding: .15rem .5rem; border-radius: var(--radius-badge);
+    background: color-mix(in srgb, var(--role-color) 15%, transparent);
+    color: var(--role-color);
+    border: 1px solid color-mix(in srgb, var(--role-color) 30%, transparent);
+    white-space: nowrap;
+  }
+  .badge-role[data-role="COORDINADOR"] { --role-color: var(--primary); }
+  .badge-role[data-role="EJECUTOR"]    { --role-color: var(--success); }
+  .badge-role[data-role="EXPERTO"]     { --role-color: var(--info); }
+  .badge-role[data-role="SEGUIMIENTO"] { --role-color: var(--accent); }
+
+  .badge-status {
+    --st: var(--ink);
+    display: inline-block;
+    font-size: .72rem; font-weight: 700;
+    padding: .12rem .5rem; border-radius: var(--radius-badge);
+    background: color-mix(in srgb, var(--st) 14%, transparent);
+    color: var(--st);
+    border: 1px solid color-mix(in srgb, var(--st) 30%, transparent);
+    white-space: nowrap;
+  }
+  .badge-status[data-st="BACKLOG"]     { --st: var(--ink); }
+  .badge-status[data-st="TODO"]        { --st: var(--info); }
+  .badge-status[data-st="IN_PROGRESS"] { --st: var(--warning); }
+  .badge-status[data-st="DONE"]        { --st: var(--success); }
+  .badge-status[data-st="WAITING"]     { --st: var(--error); }
+
+  /* ══ Diagrama de flujo ══ */
+  .flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: .5rem; margin: 1rem 0; }
+  .flow .step {
+    --st: var(--ink);
+    flex: 1 1 8.5rem; min-width: 8.5rem;
+    background: var(--base-100);
+    border: 1px solid color-mix(in srgb, var(--st) 40%, transparent);
+    border-left: 4px solid var(--st);
+    border-radius: .7rem;
+    box-shadow: var(--card-shadow);
+    padding: .6rem .8rem;
+  }
+  .flow .step b { display: block; font-size: .85rem; color: var(--st); }
+  .flow .step small { display: block; font-size: .72rem; line-height: 1.35; margin-top: .2rem; color: color-mix(in oklab, var(--ink) 65%, transparent); }
+  .flow .arrow { align-self: center; color: color-mix(in oklab, var(--ink) 40%, transparent); font-weight: 900; }
+  .flow .step[data-st="BACKLOG"]     { --st: var(--ink); }
+  .flow .step[data-st="TODO"]        { --st: var(--info); }
+  .flow .step[data-st="IN_PROGRESS"] { --st: var(--warning); }
+  .flow .step[data-st="DONE"]        { --st: var(--success); }
+  .flow .step[data-st="WAITING"]     { --st: var(--error); }
+
+  /* ══ Tablas ══ */
+  .tbl-wrap { overflow-x: auto; margin: .8rem 0; border: 1px solid var(--base-300); border-radius: .7rem; }
+  table { border-collapse: collapse; width: 100%; font-size: .85rem; }
+  thead tr { background: color-mix(in oklab, var(--base-300) 70%, var(--base-100)); }
+  th { text-align: left; padding: .55rem .75rem; border-bottom: 2px solid var(--base-300); white-space: nowrap; }
+  td { padding: .5rem .75rem; border-bottom: 1px solid color-mix(in oklab, var(--ink) 6%, transparent); vertical-align: top; }
+  tbody tr:nth-child(even) { background: var(--base-200); }
+  tbody tr:last-child td { border-bottom: none; }
+  td.c { text-align: center; }
+  .yes { color: var(--success); font-weight: 800; }
+  .no  { color: color-mix(in oklab, var(--ink) 30%, transparent); }
+
+  /* ══ Notas ══ */
+  .note { border-radius: .7rem; padding: .7rem .95rem; margin: .9rem 0; font-size: .88rem; border: 1px solid; }
+  .note.info { background: color-mix(in srgb, var(--info) 10%, var(--base-100));    border-color: color-mix(in srgb, var(--info) 40%, transparent); }
+  .note.warn { background: color-mix(in srgb, var(--warning) 10%, var(--base-100)); border-color: color-mix(in srgb, var(--warning) 40%, transparent); }
+  .note.ok   { background: color-mix(in srgb, var(--success) 10%, var(--base-100)); border-color: color-mix(in srgb, var(--success) 40%, transparent); }
+  .note b:first-child { display: block; margin-bottom: .15rem; }
+  .note.info b:first-child { color: var(--info); }
+  .note.warn b:first-child { color: var(--warning); }
+  .note.ok   b:first-child { color: var(--success); }
+
+  /* ═══════════════════════════════════════════════════════════════════
+     "CAPTURAS DE PANTALLA" — maquetas de la UI real
+     ═══════════════════════════════════════════════════════════════════ */
+  figure.shot { margin: 1.2rem 0; }
+  figure.shot figcaption {
+    font-size: .78rem; font-weight: 700; margin-bottom: .4rem;
+    color: color-mix(in oklab, var(--ink) 55%, transparent);
+    text-transform: uppercase; letter-spacing: .05em;
+  }
+  .frame {
+    border: 1px solid var(--base-300);
+    border-radius: .9rem;
+    overflow: hidden;
+    box-shadow: var(--card-shadow);
+    background: var(--shell);
+    font-size: 13px;           /* todo el mock se escala con esta base */
+    line-height: 1.45;
+  }
+  .frame-bar {
+    display: flex; align-items: center; gap: .6rem;
+    background: color-mix(in oklab, var(--base-300) 55%, var(--base-100));
+    border-bottom: 1px solid var(--base-300);
+    padding: .45rem .7rem;
+  }
+  .frame-bar .lights { display: flex; gap: .3rem; }
+  .frame-bar .lights i { width: .6rem; height: .6rem; border-radius: 50%; display: block; background: color-mix(in oklab, var(--ink) 18%, transparent); }
+  .frame-bar .url {
+    flex: 1; max-width: 22rem; margin: 0 auto;
+    background: var(--base-100); border: 1px solid var(--base-300);
+    border-radius: 9999px; padding: .1rem .8rem;
+    font-size: .72rem; color: color-mix(in oklab, var(--ink) 45%, transparent);
+    text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .frame-body { background: var(--shell); }
+  .scrollx { overflow-x: auto; }
+
+  /* App bar (header de la app) */
+  .appbar {
+    display: flex; align-items: center; gap: .2rem;
+    background: var(--base-100);
+    border-bottom: 1px solid var(--base-300);
+    padding: .5rem .7rem;
+    min-width: 44rem;
+  }
+  .appbar .logo { font-weight: 900; font-size: .9rem; letter-spacing: -.02em; margin-right: .3rem; white-space: nowrap; }
+  .appbar .logo b { color: var(--primary); }
+  .tab {
+    padding: .24rem .4rem; border-radius: .5rem;
+    font-size: .7rem; font-weight: 600; white-space: nowrap;
+    color: color-mix(in oklab, var(--ink) 50%, transparent);
+  }
+  .tab.on { background: color-mix(in srgb, var(--primary) 10%, transparent); color: var(--primary); }
+  .appbar .right { margin-left: auto; display: flex; align-items: center; gap: .3rem; }
+  .user-chip .badge-role { font-size: .55rem; padding: .1rem .38rem; }
+
+  /* Botones mock (tintados como en la app) */
+  .mbtn {
+    --c: var(--ink);
+    display: inline-flex; align-items: center; justify-content: center; gap: .3rem;
+    font-size: .76rem; font-weight: 700;
+    padding: .3rem .65rem; border-radius: .55rem;
+    background: color-mix(in srgb, var(--c) 18%, transparent);
+    border: 1px solid color-mix(in srgb, var(--c) 30%, transparent);
+    color: var(--c);
+    white-space: nowrap;
+  }
+  .mbtn.block { display: flex; width: 100%; }
+  .mbtn.success { --c: var(--success); }
+  .mbtn.error   { --c: var(--error); }
+  .mbtn.warning { --c: var(--warning); }
+  .mbtn.info    { --c: var(--info); }
+  .mbtn.edit    { --c: var(--edit); }
+  .mbtn.secondary { --c: var(--secondary); }
+  .mbtn.outline { background: transparent; }
+  .mbtn.ghost   { background: transparent; border-color: transparent; color: color-mix(in oklab, var(--ink) 55%, transparent); }
+
+  /* Campanita + avatar del header */
+  .bell { position: relative; display: inline-flex; padding: .2rem; }
+  .bell svg { width: 1.1rem; height: 1.1rem; stroke: color-mix(in oklab, var(--ink) 60%, transparent); }
+  .bell .n {
+    position: absolute; top: -.25rem; right: -.35rem;
+    background: var(--primary); color: #fff;
+    font-size: .58rem; font-weight: 800;
+    border-radius: 9999px; padding: 0 .28rem; line-height: 1.35;
+  }
+  .avatar {
+    --bg: var(--av5-bg); --fg: var(--av5-fg); --bd: var(--av5-bd);
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 1.7rem; height: 1.7rem; border-radius: 50%;
+    background: var(--bg); color: var(--fg); border: 1px solid var(--bd);
+    font-size: .62rem; font-weight: 800; flex-shrink: 0;
+  }
+  .avatar.sm { width: 1.35rem; height: 1.35rem; font-size: .52rem; }
+  .avatar.av0 { --bg: var(--av0-bg); --fg: var(--av0-fg); --bd: var(--av0-bd); }
+  .avatar.av3 { --bg: var(--av3-bg); --fg: var(--av3-fg); --bd: var(--av3-bd); }
+  .avatar.av6 { --bg: var(--av6-bg); --fg: var(--av6-fg); --bd: var(--av6-bd); }
+  .avatar-stack { display: inline-flex; }
+  .avatar-stack .avatar { box-shadow: 0 0 0 2px var(--base-100); }
+  .avatar-stack .avatar + .avatar { margin-left: -.45rem; }
+  .user-chip { display: inline-flex; flex-direction: column; align-items: center; gap: .1rem; }
+
+  /* Kanban */
+  .kb { display: flex; gap: .7rem; padding: .8rem; min-width: 46rem; align-items: flex-start; }
+  .kcol { flex: 1 1 0; min-width: 8.2rem; }
+  .kcol-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: .45rem; padding: 0 .15rem; }
+  .kcol-head .t { display: flex; align-items: center; gap: .35rem; font-size: .78rem; font-weight: 800; }
+  .kcol-head .t i { width: .5rem; height: .5rem; border-radius: 50%; display: block; background: var(--dot, var(--ink)); }
+  .kcol-head .count {
+    font-size: .68rem; font-weight: 700;
+    background: color-mix(in oklab, var(--ink) 8%, transparent);
+    color: color-mix(in oklab, var(--ink) 55%, transparent);
+    border-radius: 9999px; padding: 0 .45rem;
+  }
+  .kcol[data-st="BACKLOG"]     { --dot: var(--ink); }
+  .kcol[data-st="TODO"]        { --dot: var(--info); }
+  .kcol[data-st="IN_PROGRESS"] { --dot: var(--warning); }
+  .kcol[data-st="DONE"]        { --dot: var(--success); }
+  .kcol[data-st="WAITING"]     { --dot: var(--error); }
+
+  /* Card de ticket (réplica de .ticket-card) */
+  .kcard {
+    --st: var(--base-300);
+    background: var(--base-100);
+    border: 1px solid color-mix(in srgb, var(--st) 40%, transparent);
+    border-left: 3px solid var(--st);
+    border-radius: 1rem;
+    box-shadow: var(--card-shadow);
+    padding: .55rem .65rem;
+    margin-bottom: .6rem;
+  }
+  .kcard[data-st="BACKLOG"]     { --st: var(--ink); }
+  .kcard[data-st="TODO"]        { --st: var(--info); }
+  .kcard[data-st="IN_PROGRESS"] { --st: var(--warning); }
+  .kcard[data-st="DONE"]        { --st: var(--success); }
+  .kcard[data-st="WAITING"]     { --st: var(--error); }
+  .kcard.ghost { opacity: .5; }
+  .kcard .top { display: flex; align-items: center; justify-content: space-between; gap: .4rem; }
+  .kcard .key { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: .68rem; font-weight: 700; color: var(--accent); }
+  .kcard .proj { font-size: .6rem; font-weight: 700; color: color-mix(in oklab, var(--ink) 45%, transparent); }
+  .kcard .title { display: block; margin-top: .25rem; font-size: .78rem; font-weight: 700; line-height: 1.35; color: var(--ink); }
+  .kcard .foot { display: flex; align-items: center; justify-content: space-between; margin-top: .5rem; gap: .4rem; }
+  .kcard .meta { display: flex; align-items: center; gap: .55rem; font-size: .66rem; color: color-mix(in oklab, var(--ink) 42%, transparent); }
+  .kcard .meta .ic { display: inline-flex; align-items: center; gap: .18rem; }
+  .kcard .meta svg { width: .72rem; height: .72rem; }
+  .kcard .meta .overdue { color: var(--error); font-weight: 700; }
+
+  .prio-bars { display: inline-flex; align-items: flex-end; gap: 2px; height: 12px; }
+  .prio-bars i { width: 3px; border-radius: 1px; display: block; background: color-mix(in oklab, var(--ink) 22%, transparent); }
+  .prio-bars i:nth-child(1) { height: 4px; }
+  .prio-bars i:nth-child(2) { height: 7px; }
+  .prio-bars i:nth-child(3) { height: 9px; }
+  .prio-bars i:nth-child(4) { height: 12px; }
+  .prio-bars[data-p="LOW"]    i:nth-child(-n+1) { background: var(--ink); }
+  .prio-bars[data-p="MEDIUM"] i:nth-child(-n+2) { background: var(--success); }
+  .prio-bars[data-p="HIGH"]   i:nth-child(-n+3) { background: var(--warning); }
+  .prio-bars[data-p="URGENT"] i:nth-child(-n+4) { background: var(--error); }
+
+  .lchip {
+    --c: var(--info);
+    display: inline-flex; align-items: center;
+    font-size: .58rem; font-weight: 700; line-height: 1;
+    padding: .14rem .4rem; border-radius: var(--radius-badge);
+    background: color-mix(in srgb, var(--c) 15%, transparent);
+    color: var(--c);
+    border: 1px solid color-mix(in srgb, var(--c) 30%, transparent);
+  }
+  .lchip.success { --c: var(--success); }
+  .lchip.warning { --c: var(--warning); }
+  .lchip.accent  { --c: var(--accent); }
+
+  .mini-badge {
+    --c: var(--success);
+    display: inline-block; font-size: .58rem; font-weight: 700;
+    padding: .1rem .38rem; border-radius: var(--radius-badge);
+    background: color-mix(in srgb, var(--c) 14%, transparent);
+    color: var(--c);
+    border: 1px solid color-mix(in srgb, var(--c) 32%, transparent);
+    white-space: nowrap;
+  }
+  .mini-badge.warning { --c: var(--warning); }
+  .mini-badge.error   { --c: var(--error); }
+  .mini-badge.info    { --c: var(--info); }
+  .mini-badge.accent  { --c: var(--accent); }
+  .mini-badge.ghost   { --c: var(--secondary); background: color-mix(in oklab, var(--ink) 6%, transparent); }
+
+  /* Panel del detalle */
+  .detail { display: grid; grid-template-columns: 1fr 1.5fr; gap: .8rem; padding: .8rem; min-width: 46rem; align-items: start; }
+  .panel { background: var(--base-100); border: 1px solid var(--base-300); border-radius: 1rem; box-shadow: var(--card-shadow); overflow: hidden; }
+  .panel + .panel { margin-top: .8rem; }
+  .panel-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: .55rem .8rem; border-bottom: 1px solid var(--base-200); flex-wrap: wrap; }
+  .panel-head .key { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: .7rem; font-weight: 700; color: var(--accent); }
+  .panel-body { padding: .7rem .8rem; }
+  .panel h4 { margin: 0; font-size: .88rem; font-weight: 800; }
+  .frow { display: flex; padding: .32rem .8rem; font-size: .74rem; border-top: 1px solid var(--base-200); }
+  .frow .k { width: 6rem; flex-shrink: 0; color: color-mix(in oklab, var(--ink) 42%, transparent); }
+  .actions { padding: .6rem .8rem; border-top: 1px solid var(--base-200); display: flex; flex-direction: column; gap: .4rem; }
+  .actions .row { display: flex; gap: .4rem; }
+  .actions .row > * { flex: 1; }
+
+  .person { display: flex; align-items: flex-start; gap: .45rem; font-size: .74rem; padding: .3rem 0; }
+  .person .who { display: flex; align-items: center; gap: .3rem; flex-wrap: wrap; font-weight: 600; }
+  .person .sub { font-size: .64rem; color: color-mix(in oklab, var(--ink) 42%, transparent); }
+
+  /* Chat */
+  .chat-msgs { padding: .8rem; display: flex; flex-direction: column; gap: .7rem; }
+  .msg { display: flex; gap: .45rem; }
+  .msg .body { min-width: 0; flex: 1; }
+  .msg .who { display: flex; align-items: baseline; gap: .4rem; font-size: .74rem; }
+  .msg .who b { font-weight: 700; }
+  .msg .who span { font-size: .62rem; color: color-mix(in oklab, var(--ink) 40%, transparent); }
+  .bubble {
+    margin-top: .2rem;
+    background: var(--base-200);
+    border-radius: 1rem; border-top-left-radius: .25rem;
+    padding: .4rem .6rem;
+    font-size: .76rem;
+    max-width: 34rem;
+  }
+  .msg .edit-link { text-align: right; font-size: .62rem; color: color-mix(in oklab, var(--ink) 40%, transparent); margin-top: .15rem; }
+  .att-thumb {
+    display: inline-flex; flex-direction: column; gap: .15rem;
+    border: 1px solid var(--base-300); border-radius: .55rem;
+    padding: .3rem; margin-top: .3rem;
+    font-size: .6rem; color: color-mix(in oklab, var(--ink) 55%, transparent);
+    background: var(--base-100);
+  }
+  .att-thumb .img {
+    width: 6.5rem; height: 4rem; border-radius: .4rem;
+    background:
+      linear-gradient(135deg, color-mix(in srgb, var(--info) 30%, transparent), color-mix(in srgb, var(--accent) 30%, transparent));
+    position: relative;
+  }
+  .att-thumb .img.annotated::after {
+    content: ''; position: absolute; left: 18%; top: 22%; width: 45%; height: 45%;
+    border: 2px solid var(--primary); border-radius: 50%;
+  }
+  .chat-input { border-top: 1px solid var(--base-200); padding: .6rem .8rem; display: flex; flex-direction: column; gap: .45rem; }
+  .chat-input .line { display: flex; gap: .4rem; }
+  .finput {
+    flex: 1;
+    border: 1px solid color-mix(in oklab, var(--ink) 20%, transparent);
+    border-radius: .6rem;
+    padding: .35rem .6rem;
+    font-size: .74rem;
+    color: color-mix(in oklab, var(--ink) 45%, transparent);
+    background: var(--base-100);
+    min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .dropzone {
+    border: 2px dashed var(--base-300); border-radius: .8rem;
+    padding: .55rem; text-align: center;
+    font-size: .68rem; color: color-mix(in oklab, var(--ink) 55%, transparent);
+  }
+  .dropzone b { color: var(--primary); }
+
+  /* Formulario */
+  .form-mock { padding: .8rem; min-width: 40rem; }
+  .fgroup { margin-bottom: .55rem; }
+  .fgroup label { display: block; font-size: .72rem; font-weight: 700; margin-bottom: .18rem; }
+  .fgroup label .aux { font-weight: 400; color: color-mix(in oklab, var(--ink) 40%, transparent); }
+  .fgroup .hint { font-size: .62rem; color: color-mix(in oklab, var(--ink) 42%, transparent); margin-top: .18rem; }
+  .fcols { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: .55rem; }
+  .fselect { position: relative; }
+  .fselect::after { content: '▾'; position: absolute; right: .5rem; top: 50%; transform: translateY(-50%); font-size: .6rem; color: color-mix(in oklab, var(--ink) 45%, transparent); }
+  .fcheck { display: inline-flex; align-items: center; gap: .35rem; font-size: .74rem; font-weight: 600; }
+  .fcheck i {
+    width: .85rem; height: .85rem; border-radius: .25rem;
+    border: 1.5px solid color-mix(in oklab, var(--ink) 35%, transparent); display: inline-block;
+  }
+  .fpick { display: flex; flex-direction: column; gap: .3rem; border: 1px solid var(--base-300); border-radius: .6rem; padding: .45rem .55rem; }
+  .fpick .opt { display: flex; align-items: center; gap: .4rem; font-size: .74rem; }
+  .fpick .opt i { width: .85rem; height: .85rem; border-radius: .25rem; border: 1.5px solid color-mix(in oklab, var(--ink) 35%, transparent); display: inline-block; flex-shrink: 0; }
+  .fpick .opt i.on { background: var(--primary); border-color: var(--primary); position: relative; }
+  .fpick .opt i.on::after { content: '✓'; color: #fff; font-size: .6rem; font-weight: 800; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+
+  /* Modal */
+  .modal-stage { padding: 1.6rem .8rem; background: color-mix(in oklab, var(--ink) 35%, var(--shell)); display: flex; justify-content: center; }
+  .modal-box { background: var(--base-100); border-radius: 1rem; box-shadow: var(--card-shadow); border: 1px solid var(--base-300); max-width: 22rem; width: 100%; padding: .9rem 1rem; }
+  .modal-box h5 { margin: 0 0 .4rem; font-size: .85rem; font-weight: 800; }
+  .ftextarea {
+    border: 1px solid color-mix(in oklab, var(--ink) 20%, transparent);
+    border-radius: .6rem; padding: .4rem .6rem;
+    font-size: .72rem; color: color-mix(in oklab, var(--ink) 40%, transparent);
+    min-height: 3.4rem; background: var(--base-100);
+  }
+
+  /* Dropdown campanita */
+  .drop { background: var(--base-100); border: 1px solid var(--base-300); border-radius: .9rem; box-shadow: var(--card-shadow); max-width: 20rem; margin: .8rem auto; overflow: hidden; }
+  .drop-head { display: flex; align-items: center; justify-content: space-between; padding: .5rem .75rem; border-bottom: 1px solid var(--base-200); font-size: .74rem; font-weight: 800; }
+  .drop-head a { font-size: .64rem; font-weight: 700; color: var(--primary); }
+  .notif { padding: .45rem .75rem; font-size: .72rem; border-bottom: 1px solid var(--base-200); }
+  .notif:last-child { border-bottom: none; }
+  .notif.unread { font-weight: 700; }
+  .notif .when { display: block; font-size: .6rem; font-weight: 400; color: color-mix(in oklab, var(--ink) 40%, transparent); }
+
+  /* Llamadas numeradas (callouts) */
+  .dot {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 1.05rem; height: 1.05rem; border-radius: 50%;
+    background: var(--accent); color: #211A0C;
+    font-size: .62rem; font-weight: 900; font-style: normal;
+    box-shadow: 0 1px 3px rgba(0,0,0,.25);
+    vertical-align: middle;
+    flex-shrink: 0;
+  }
+  ol.legend { list-style: none; padding: 0; margin: .6rem 0 0; font-size: .84rem; }
+  ol.legend li { display: flex; gap: .5rem; align-items: baseline; margin: .3rem 0; }
+  ol.legend .dot { transform: translateY(.15rem); }
+
+  /* ══ Franja RACI ══ */
+  .raci { display: grid; grid-template-columns: repeat(4, 1fr); gap: .55rem; margin: .9rem 0; }
+  @media (max-width: 640px) { .raci { grid-template-columns: repeat(2, 1fr); } }
+  .raci .r {
+    --c: var(--ink);
+    background: var(--base-100);
+    border: 1px solid color-mix(in srgb, var(--c) 35%, transparent);
+    border-top: 3px solid var(--c);
+    border-radius: .7rem;
+    box-shadow: var(--card-shadow);
+    padding: .55rem .7rem;
+  }
+  .raci .r .letter {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 1.6rem; height: 1.6rem; border-radius: .5rem;
+    font-size: .95rem; font-weight: 900;
+    background: color-mix(in srgb, var(--c) 15%, transparent);
+    color: var(--c);
+    border: 1px solid color-mix(in srgb, var(--c) 30%, transparent);
+  }
+  .raci .r b { display: block; font-size: .78rem; margin-top: .35rem; }
+  .raci .r small { display: block; font-size: .7rem; line-height: 1.4; color: color-mix(in oklab, var(--ink) 62%, transparent); }
+  .raci .r[data-role="EJECUTOR"]    { --c: var(--success); }
+  .raci .r[data-role="COORDINADOR"] { --c: var(--primary); }
+  .raci .r[data-role="EXPERTO"]     { --c: var(--info); }
+  .raci .r[data-role="SEGUIMIENTO"] { --c: var(--accent); }
+
+  footer { max-width: 64rem; margin: 0 auto; padding: 0 1rem 3rem; font-size: .8rem; color: color-mix(in oklab, var(--ink) 50%, transparent); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <h1><span class="brand">Sky</span>Desk — Tutorial de tickets</h1>
+  <p>Guía visual del sistema de tickets: cada pantalla explicada como en la app, con qué puede hacer cada rol.</p>
+</header>
+
+<div class="role-bar">
+  <div class="role-bar-inner" role="group" aria-label="Filtrar el tutorial por rol">
+    <span>¿Cuál es tu rol?</span>
+    <button class="chip" data-role="COORDINADOR" aria-pressed="true">Coordinador</button>
+    <button class="chip" data-role="EJECUTOR" aria-pressed="false">Ejecutor</button>
+    <button class="chip" data-role="EXPERTO" aria-pressed="false">Experto</button>
+    <button class="chip" data-role="SEGUIMIENTO" aria-pressed="false">Seguimiento</button>
+  </div>
+</div>
+
+<main>
+
+  <!-- ═══════════ Conceptos básicos ═══════════ -->
+  <section class="card">
+    <h2><span class="num"></span> Conceptos básicos</h2>
+    <p>En SkyDesk el trabajo se organiza en <strong>tickets</strong>: tareas con título, descripción, prioridad, fecha de vencimiento y responsables. Los tickets viven en un <strong>tablero</strong> (kanban) y avanzan de columna en columna hasta concluirse.</p>
+
+    <h3>Los roles siguen el modelo RACI</h3>
+    <p>La asignación de responsabilidades está basada en la <strong>matriz RACI</strong> (<em>Responsible, Accountable, Consulted, Informed</em>), alineada a las buenas prácticas del <strong>PMI</strong> para la gestión de proyectos: cada tarea tiene un único responsable final que rinde cuentas, uno o más que la ejecutan, consultados que aportan criterio e informados que siguen el avance.</p>
+    <div class="raci">
+      <div class="r" data-role="EJECUTOR"><span class="letter">R</span><b>Responsible · Ejecutor</b><small>Ejecuta la tarea y la concluye.</small></div>
+      <div class="r" data-role="COORDINADOR"><span class="letter">A</span><b>Accountable · Coordinador</b><small>Responsable final: asigna, aprueba o rechaza.</small></div>
+      <div class="r" data-role="EXPERTO"><span class="letter">C</span><b>Consulted · Experto</b><small>Consultado: aporta criterio por el chat.</small></div>
+      <div class="r" data-role="SEGUIMIENTO"><span class="letter">I</span><b>Informed · Seguimiento</b><small>Informado: observa todo, sin intervenir.</small></div>
+    </div>
+
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Rol</th><th class="c">RACI</th><th>En pocas palabras</th></tr></thead>
+      <tbody>
+        <tr><td><span class="badge-role" data-role="COORDINADOR">Coordinador</span></td><td class="c"><strong>A</strong></td><td>Responsable del flujo: crea tickets, asigna ejecutores, aprueba o rechaza conclusiones, suspende y archiva.</td></tr>
+        <tr><td><span class="badge-role" data-role="EJECUTOR">Ejecutor</span></td><td class="c"><strong>R</strong></td><td>Hace el trabajo: toma sus tickets asignados, los mueve a "En progreso" y los concluye.</td></tr>
+        <tr><td><span class="badge-role" data-role="EXPERTO">Experto</span></td><td class="c"><strong>C</strong></td><td>Consultor: se lo suma a un ticket para opinar; puede leer y escribir en el chat de cualquier tarea.</td></tr>
+        <tr><td><span class="badge-role" data-role="SEGUIMIENTO">Seguimiento</span></td><td class="c"><strong>I</strong></td><td>Solo lectura: ve todos los tickets, conversaciones y el dashboard, pero no escribe ni mueve nada.</td></tr>
+      </tbody>
+    </table></div>
+
+    <h3>Qué columnas ve cada rol</h3>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Columna</th><th class="c">Coordinador</th><th class="c">Ejecutor</th><th class="c">Experto</th><th class="c">Seguimiento</th></tr></thead>
+      <tbody>
+        <tr><td><span class="badge-status" data-st="BACKLOG">Entrada</span></td><td class="c yes">✓</td><td class="c no">—</td><td class="c no">—</td><td class="c no">—</td></tr>
+        <tr><td><span class="badge-status" data-st="TODO">Por hacer</span></td><td class="c yes">✓</td><td class="c yes">✓</td><td class="c yes">✓</td><td class="c yes">✓</td></tr>
+        <tr><td><span class="badge-status" data-st="IN_PROGRESS">En progreso</span></td><td class="c yes">✓</td><td class="c yes">✓</td><td class="c yes">✓</td><td class="c yes">✓</td></tr>
+        <tr><td><span class="badge-status" data-st="DONE">Concluido</span></td><td class="c yes">✓</td><td class="c yes">✓</td><td class="c yes">✓</td><td class="c yes">✓</td></tr>
+        <tr><td><span class="badge-status" data-st="WAITING">Suspendido / Cancelado</span></td><td class="c yes">✓</td><td class="c no">—</td><td class="c no">—</td><td class="c yes">✓</td></tr>
+      </tbody>
+    </table></div>
+
+    <h3>Modalidades de un ticket</h3>
+    <ul>
+      <li><strong>Individual</strong>: un solo ejecutor con su propio subticket.</li>
+      <li><strong>Colaborativa</strong> (sin subproductos): varios ejecutores comparten el mismo estado; cualquiera de ellos mueve la tarea.</li>
+      <li><strong>Con subproductos</strong>: cada ejecutor tiene su <em>subticket</em> independiente y avanza a su ritmo. El ticket recién queda <span class="badge-status" data-st="DONE">Concluido</span> cuando todos los subtickets están concluidos y aprobados.</li>
+    </ul>
+  </section>
+
+  <!-- ═══════════ La pantalla principal ═══════════ -->
+  <section class="card">
+    <h2><span class="num"></span> La pantalla principal</h2>
+    <p>Al iniciar sesión llegás al <strong>Tablero</strong>. Arriba está el menú: solo aparecen las secciones que tu rol puede usar.</p>
+
+    <figure class="shot" data-roles="COORDINADOR">
+      <figcaption>Barra superior — vista del Coordinador</figcaption>
+      <div class="frame"><div class="scrollx">
+        <div class="appbar">
+          <span class="logo"><b>Sky</b>Desk</span>
+          <span class="tab on">Tablero</span>
+          <span class="tab">Mis tickets</span>
+          <span class="tab">Dashboard</span>
+          <span class="tab">Seguimiento</span>
+          <span class="tab">Proyectos</span>
+          <span class="tab">Tipos de Actividad</span>
+          <span class="tab">Cuentas</span>
+          <span class="right">
+            <span class="mbtn success">+ Ticket <i class="dot">1</i></span>
+            <span class="bell"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg><span class="n">3</span><i class="dot">2</i></span>
+            <span class="user-chip"><span class="avatar">CQ</span><span class="badge-role" data-role="COORDINADOR">Coordinador</span></span>
+            <i class="dot">3</i>
+          </span>
+        </div>
+      </div></div>
+      <ol class="legend">
+        <li><i class="dot">1</i><span><strong>+ Ticket</strong>: crea un ticket nuevo (solo Coordinador).</span></li>
+        <li><i class="dot">2</i><span><strong>Campanita</strong>: notificaciones dentro de la app; el número indica las no leídas.</span></li>
+        <li><i class="dot">3</i><span><strong>Menú de usuario</strong>: tu avatar con el rol debajo. Abre Archivados, Mi perfil y Cerrar sesión.</span></li>
+      </ol>
+    </figure>
+
+    <figure class="shot" data-roles="EJECUTOR">
+      <figcaption>Barra superior — vista del Ejecutor</figcaption>
+      <div class="frame"><div class="scrollx">
+        <div class="appbar" style="min-width: 34rem;">
+          <span class="logo"><b>Sky</b>Desk</span>
+          <span class="tab on">Tablero</span>
+          <span class="tab">Mis tickets</span>
+          <span class="right">
+            <span class="bell"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg><span class="n">2</span><i class="dot">1</i></span>
+            <span class="user-chip"><span class="avatar av3">MR</span><span class="badge-role" data-role="EJECUTOR">Ejecutor</span></span>
+            <i class="dot">2</i>
+          </span>
+        </div>
+      </div></div>
+      <ol class="legend">
+        <li><i class="dot">1</i><span><strong>Campanita</strong>: acá te llegan las asignaciones, aprobaciones, rechazos y avisos de vencimiento.</span></li>
+        <li><i class="dot">2</i><span><strong>Menú de usuario</strong>: tu avatar con el rol debajo. Abre Archivados, Mi perfil y Cerrar sesión.</span></li>
+      </ol>
+    </figure>
+
+    <figure class="shot" data-roles="EXPERTO">
+      <figcaption>Barra superior — vista del Experto</figcaption>
+      <div class="frame"><div class="scrollx">
+        <div class="appbar" style="min-width: 34rem;">
+          <span class="logo"><b>Sky</b>Desk</span>
+          <span class="tab on">Tablero</span>
+          <span class="tab">Mis tickets</span>
+          <span class="tab">Dashboard</span>
+          <span class="right">
+            <span class="bell"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg><span class="n">1</span><i class="dot">1</i></span>
+            <span class="user-chip"><span class="avatar av6">LP</span><span class="badge-role" data-role="EXPERTO">Experto</span></span>
+            <i class="dot">2</i>
+          </span>
+        </div>
+      </div></div>
+      <ol class="legend">
+        <li><i class="dot">1</i><span><strong>Campanita</strong>: te avisa cuando te suman a un ticket o hay novedades en tus conversaciones.</span></li>
+        <li><i class="dot">2</i><span><strong>Menú de usuario</strong>: tu avatar con el rol debajo. Abre Archivados, Mi perfil y Cerrar sesión.</span></li>
+      </ol>
+    </figure>
+
+    <figure class="shot" data-roles="SEGUIMIENTO">
+      <figcaption>Barra superior — vista del rol Seguimiento</figcaption>
+      <div class="frame"><div class="scrollx">
+        <div class="appbar" style="min-width: 34rem;">
+          <span class="logo"><b>Sky</b>Desk</span>
+          <span class="tab on">Tablero</span>
+          <span class="tab">Mis tickets</span>
+          <span class="tab">Dashboard</span>
+          <span class="tab">Seguimiento</span>
+          <span class="right">
+            <span class="bell"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg><i class="dot">1</i></span>
+            <span class="user-chip"><span class="avatar av0">RV</span><span class="badge-role" data-role="SEGUIMIENTO">Seguimiento</span></span>
+            <i class="dot">2</i>
+          </span>
+        </div>
+      </div></div>
+      <ol class="legend">
+        <li><i class="dot">1</i><span><strong>Campanita</strong>: notificaciones dentro de la app.</span></li>
+        <li><i class="dot">2</i><span><strong>Menú de usuario</strong>: tu avatar con el rol debajo. Abre Archivados, Mi perfil y Cerrar sesión.</span></li>
+      </ol>
+    </figure>
+
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Sección</th><th>Qué es</th><th>Quién la ve</th></tr></thead>
+      <tbody>
+        <tr><td><kbd class="ui">Tablero</kbd></td><td>El kanban principal con las columnas de estado.</td><td>Todos</td></tr>
+        <tr><td><kbd class="ui">Mis tickets</kbd></td><td>Lista de los tickets donde participás, ordenable por vencimiento, prioridad, actividad o modificación.</td><td>Todos</td></tr>
+        <tr><td><kbd class="ui">Dashboard</kbd></td><td>Métricas: activos, en progreso, vencidos, por aprobar, concluidos (30 días), tiempos promedio.</td><td>
+          <span class="badge-role" data-role="COORDINADOR">Coordinador</span> <span class="badge-role" data-role="EXPERTO">Experto</span> <span class="badge-role" data-role="SEGUIMIENTO">Seguimiento</span></td></tr>
+        <tr><td><kbd class="ui">Seguimiento</kbd></td><td>Todas las conversaciones de todos los tickets en un solo lugar.</td><td>
+          <span class="badge-role" data-role="COORDINADOR">Coordinador</span> <span class="badge-role" data-role="SEGUIMIENTO">Seguimiento</span></td></tr>
+        <tr><td><kbd class="ui">Proyectos</kbd></td><td>Alta y gestión de proyectos para agrupar tickets.</td><td><span class="badge-role" data-role="COORDINADOR">Coordinador</span></td></tr>
+        <tr><td><kbd class="ui">Tipos de Actividad</kbd></td><td>Etiquetas de colores para clasificar los tickets.</td><td><span class="badge-role" data-role="COORDINADOR">Coordinador</span></td></tr>
+        <tr><td><kbd class="ui">Cuentas</kbd></td><td>Invitar usuarios, activar accesos y asignar roles.</td><td><span class="badge-role" data-role="COORDINADOR">Coordinador</span></td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <!-- ═══════════ El tablero ═══════════ -->
+  <section class="card">
+    <h2><span class="num"></span> El tablero</h2>
+
+    <figure class="shot" data-roles="COORDINADOR">
+      <figcaption>Tablero — vista del Coordinador (cards = tickets completos)</figcaption>
+      <div class="frame">
+        <div class="frame-bar"><span class="lights"><i></i><i></i><i></i></span><span class="url">skydesk.redlinegs.com</span></div>
+        <div class="frame-body scrollx">
+          <div class="kb">
+            <div class="kcol" data-st="BACKLOG">
+              <div class="kcol-head"><span class="t"><i></i>Entrada <i class="dot">1</i></span><span class="count">1</span></div>
+              <div class="kcard" data-st="BACKLOG">
+                <div class="top"><span><span class="key">SKY-27</span> <span class="proj">TNO</span></span><span class="prio-bars" data-p="MEDIUM"><i></i><i></i><i></i><i></i></span></div>
+                <span class="title">Inventario de repuestos del depósito</span>
+                <div class="foot"><span class="meta"></span></div>
+              </div>
+            </div>
+            <div class="kcol" data-st="TODO">
+              <div class="kcol-head"><span class="t"><i></i>Por hacer</span><span class="count">2</span></div>
+              <div class="kcard" data-st="TODO">
+                <div class="top"><span><span class="key">SKY-24</span> <span class="proj">TNO</span></span><span class="prio-bars" data-p="HIGH"><i></i><i></i><i></i><i></i></span></div>
+                <span class="title">Relevamiento fotográfico sector norte</span>
+                <div style="margin-top:.3rem;"><span class="lchip">Relevamiento</span></div>
+                <div class="foot">
+                  <span class="meta"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>28/07</span></span>
+                  <span class="avatar-stack"><span class="avatar sm av3">MR</span></span>
+                </div>
+              </div>
+              <div class="kcard" data-st="TODO">
+                <div class="top"><span><span class="key">SKY-25</span></span><span class="prio-bars" data-p="LOW"><i></i><i></i><i></i><i></i></span></div>
+                <span class="title">Actualizar planos del piso 3</span>
+                <div class="foot"><span class="meta"></span><span class="avatar-stack"><span class="avatar sm av6">LP</span></span></div>
+              </div>
+            </div>
+            <div class="kcol" data-st="IN_PROGRESS">
+              <div class="kcol-head"><span class="t"><i></i>En progreso</span><span class="count">1</span></div>
+              <div class="kcard" data-st="IN_PROGRESS">
+                <div class="top"><span><span class="key">SKY-21</span> <span class="proj">TNO</span></span><span class="prio-bars" data-p="URGENT"><i></i><i></i><i></i><i></i></span></div>
+                <span class="title">Calibración de equipos de medición</span>
+                <div style="margin-top:.3rem;"><span class="lchip warning">Obra</span></div>
+                <div class="foot">
+                  <span class="meta">
+                    <span class="ic overdue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>21/07 <i class="dot">2</i></span>
+                    <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>5</span>
+                    <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>2</span>
+                  </span>
+                  <span class="avatar-stack"><span class="avatar sm av3">MR</span><span class="avatar sm av0">JT</span><i class="dot">3</i></span>
+                </div>
+              </div>
+            </div>
+            <div class="kcol" data-st="DONE">
+              <div class="kcol-head"><span class="t"><i></i>Concluido</span><span class="count">1</span></div>
+              <div class="kcard" data-st="DONE">
+                <div class="top"><span><span class="key">SKY-18</span></span><span class="prio-bars" data-p="MEDIUM"><i></i><i></i><i></i><i></i></span></div>
+                <span class="title">Informe mensual de avance</span>
+                <div style="margin-top:.3rem;"><span class="mini-badge">Pendiente de aprobación</span> <i class="dot">4</i></div>
+                <div class="foot">
+                  <span class="meta"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>8</span></span>
+                  <span class="avatar-stack"><span class="avatar sm av6">LP</span></span>
+                </div>
+              </div>
+            </div>
+            <div class="kcol" data-st="WAITING">
+              <div class="kcol-head"><span class="t"><i></i>Suspendido / Cancelado <i class="dot">5</i></span><span class="count">1</span></div>
+              <div class="kcard" data-st="WAITING">
+                <div class="top"><span><span class="key">SKY-11</span></span><span class="mini-badge ghost">Suspendido</span></div>
+                <span class="title">Migración del archivo histórico</span>
+                <div class="foot"><span class="meta"></span><span class="avatar-stack"><span class="avatar sm av0">JT</span></span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <ol class="legend">
+        <li><i class="dot">1</i><span><strong>Entrada</strong>: tickets creados sin ejecutor. Solo la ve el Coordinador — es su bandeja de pendientes por asignar.</span></li>
+        <li><i class="dot">2</i><span>Fecha <strong>vencida</strong>: destella en rojo en la card.</span></li>
+        <li><i class="dot">3</i><span><strong>Avatares</strong> de los ejecutores asignados; al lado, mensajes y adjuntos del ticket.</span></li>
+        <li><i class="dot">4</i><span><strong>Pendiente de aprobación</strong>: el ejecutor concluyó y espera tu revisión.</span></li>
+        <li><i class="dot">5</i><span><strong>Suspendido/Cancelado</strong>: tickets bloqueados por el coordinador; no se pueden mover.</span></li>
+      </ol>
+      <p style="font-size:.84rem;">Las cards se mueven <strong>arrastrándolas</strong> de columna a columna. El borde izquierdo de cada card repite el color de su columna, y las barras <span class="prio-bars" data-p="URGENT" style="vertical-align:middle;"><i></i><i></i><i></i><i></i></span> indican la prioridad (Baja · Media · Alta · Urgente).</p>
+    </figure>
+
+    <figure class="shot" data-roles="EJECUTOR">
+      <figcaption>Tablero — vista del Ejecutor (cards = tus subtickets)</figcaption>
+      <div class="frame">
+        <div class="frame-bar"><span class="lights"><i></i><i></i><i></i></span><span class="url">skydesk.redlinegs.com</span></div>
+        <div class="frame-body scrollx">
+          <div class="kb" style="min-width: 34rem;">
+            <div class="kcol" data-st="TODO">
+              <div class="kcol-head"><span class="t"><i></i>Por hacer</span><span class="count">1</span></div>
+              <div class="kcard" data-st="TODO">
+                <div class="top"><span><span class="key">SKY-24</span> <span class="proj">TNO</span></span><span class="prio-bars" data-p="HIGH"><i></i><i></i><i></i><i></i></span></div>
+                <span class="title">Relevamiento fotográfico sector norte</span>
+                <div style="margin-top:.3rem;"><span class="lchip">Relevamiento</span></div>
+                <div class="foot">
+                  <span class="meta"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>28/07</span></span>
+                  <span class="avatar-stack"><span class="avatar sm av3">MR</span></span>
+                </div>
+              </div>
+            </div>
+            <div class="kcol" data-st="IN_PROGRESS">
+              <div class="kcol-head"><span class="t"><i></i>En progreso</span><span class="count">2</span></div>
+              <div class="kcard" data-st="IN_PROGRESS">
+                <div class="top"><span><span class="key">SKY-21</span> <span class="proj">TNO</span></span><span class="prio-bars" data-p="URGENT"><i></i><i></i><i></i><i></i></span></div>
+                <span class="title">Calibración de equipos de medición</span>
+                <div class="foot">
+                  <span class="meta"><span class="ic overdue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>21/07</span></span>
+                  <span class="avatar-stack"><span class="avatar sm av3">MR</span></span>
+                </div>
+              </div>
+              <div class="kcard ghost" data-st="IN_PROGRESS">
+                <div class="top"><span><span class="key">SKY-21</span> <span class="proj">TNO</span></span><i class="dot">1</i></div>
+                <span class="title">Calibración de equipos de medición</span>
+                <div class="foot"><span class="meta"></span><span class="avatar-stack"><span class="avatar sm av0">JT</span></span></div>
+              </div>
+            </div>
+            <div class="kcol" data-st="DONE">
+              <div class="kcol-head"><span class="t"><i></i>Concluido</span><span class="count">1</span></div>
+              <div class="kcard" data-st="DONE">
+                <div class="top"><span><span class="key">SKY-18</span></span><span class="prio-bars" data-p="MEDIUM"><i></i><i></i><i></i><i></i></span></div>
+                <span class="title">Informe mensual de avance</span>
+                <div style="margin-top:.3rem;"><span class="mini-badge warning">sin aprobar</span> <i class="dot">2</i></div>
+                <div class="foot"><span class="meta"></span><span class="avatar-stack"><span class="avatar sm av3">MR</span></span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <ol class="legend">
+        <li><i class="dot">1</i><span>Card <strong>fantasma</strong> (atenuada): el subticket de un compañero en el mismo ticket con subproductos. Ves cómo va, pero solo movés el tuyo.</span></li>
+        <li><i class="dot">2</i><span><strong>sin aprobar</strong>: ya concluiste; falta que el coordinador apruebe tu trabajo.</span></li>
+      </ol>
+      <p style="font-size:.84rem;">Movés tu card <strong>arrastrándola</strong>: a <span class="badge-status" data-st="IN_PROGRESS">En progreso</span> cuando empezás y a <span class="badge-status" data-st="DONE">Concluido</span> cuando terminás. No ves las columnas Entrada ni Suspendido/Cancelado.</p>
+    </figure>
+
+    <figure class="shot" data-roles="EXPERTO">
+      <figcaption>Tablero — vista del Experto (cards = los tickets donde participás)</figcaption>
+      <div class="frame">
+        <div class="frame-bar"><span class="lights"><i></i><i></i><i></i></span><span class="url">skydesk.redlinegs.com</span></div>
+        <div class="frame-body scrollx">
+          <div class="kb" style="min-width: 34rem;">
+            <div class="kcol" data-st="TODO">
+              <div class="kcol-head"><span class="t"><i></i>Por hacer</span><span class="count">0</span></div>
+            </div>
+            <div class="kcol" data-st="IN_PROGRESS">
+              <div class="kcol-head"><span class="t"><i></i>En progreso</span><span class="count">1</span></div>
+              <div class="kcard" data-st="IN_PROGRESS">
+                <div class="top"><span><span class="key">SKY-21</span> <span class="proj">TNO</span></span><span class="prio-bars" data-p="URGENT"><i></i><i></i><i></i><i></i></span></div>
+                <span class="title">Calibración de equipos de medición</span>
+                <div style="margin-top:.3rem;"><span class="lchip warning">Obra</span></div>
+                <div class="foot">
+                  <span class="meta"><span class="ic overdue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>21/07</span></span>
+                  <span class="avatar-stack"><span class="avatar sm av3">MR</span><span class="avatar sm av0">JT</span></span>
+                </div>
+              </div>
+            </div>
+            <div class="kcol" data-st="DONE">
+              <div class="kcol-head"><span class="t"><i></i>Concluido</span><span class="count">1</span></div>
+              <div class="kcard" data-st="DONE">
+                <div class="top"><span><span class="key">SKY-18</span></span><span class="prio-bars" data-p="MEDIUM"><i></i><i></i><i></i><i></i></span></div>
+                <span class="title">Informe mensual de avance</span>
+                <div style="margin-top:.3rem;"><span class="mini-badge">Pendiente de aprobación</span></div>
+                <div class="foot">
+                  <span class="meta"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>8</span></span>
+                  <span class="avatar-stack"><span class="avatar sm av6">LP</span></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p style="font-size:.84rem;">Ves los <strong>tickets completos donde participás como experto</strong> (mismo formato de card que el Coordinador), en 3 columnas — sin Entrada ni Suspendido/Cancelado. <strong>No arrastrás cards</strong>: tu aporte pasa por el chat de seguimiento.</p>
+    </figure>
+
+    <figure class="shot" data-roles="SEGUIMIENTO">
+      <figcaption>Tablero — vista del rol Seguimiento (todos los tickets, solo lectura)</figcaption>
+      <div class="frame">
+        <div class="frame-bar"><span class="lights"><i></i><i></i><i></i></span><span class="url">skydesk.redlinegs.com</span></div>
+        <div class="frame-body scrollx">
+          <div class="kb" style="min-width: 42rem;">
+            <div class="kcol" data-st="TODO">
+              <div class="kcol-head"><span class="t"><i></i>Por hacer</span><span class="count">2</span></div>
+              <div class="kcard" data-st="TODO">
+                <div class="top"><span><span class="key">SKY-24</span> <span class="proj">TNO</span></span><span class="prio-bars" data-p="HIGH"><i></i><i></i><i></i><i></i></span></div>
+                <span class="title">Relevamiento fotográfico sector norte</span>
+                <div class="foot">
+                  <span class="meta"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>28/07</span></span>
+                  <span class="avatar-stack"><span class="avatar sm av3">MR</span></span>
+                </div>
+              </div>
+              <div class="kcard" data-st="TODO">
+                <div class="top"><span><span class="key">SKY-25</span></span><span class="prio-bars" data-p="LOW"><i></i><i></i><i></i><i></i></span></div>
+                <span class="title">Actualizar planos del piso 3</span>
+                <div class="foot"><span class="meta"></span><span class="avatar-stack"><span class="avatar sm av6">LP</span></span></div>
+              </div>
+            </div>
+            <div class="kcol" data-st="IN_PROGRESS">
+              <div class="kcol-head"><span class="t"><i></i>En progreso</span><span class="count">1</span></div>
+              <div class="kcard" data-st="IN_PROGRESS">
+                <div class="top"><span><span class="key">SKY-21</span> <span class="proj">TNO</span></span><span class="prio-bars" data-p="URGENT"><i></i><i></i><i></i><i></i></span></div>
+                <span class="title">Calibración de equipos de medición</span>
+                <div class="foot">
+                  <span class="meta"><span class="ic overdue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>21/07</span></span>
+                  <span class="avatar-stack"><span class="avatar sm av3">MR</span><span class="avatar sm av0">JT</span></span>
+                </div>
+              </div>
+            </div>
+            <div class="kcol" data-st="DONE">
+              <div class="kcol-head"><span class="t"><i></i>Concluido</span><span class="count">1</span></div>
+              <div class="kcard" data-st="DONE">
+                <div class="top"><span><span class="key">SKY-18</span></span><span class="prio-bars" data-p="MEDIUM"><i></i><i></i><i></i><i></i></span></div>
+                <span class="title">Informe mensual de avance</span>
+                <div style="margin-top:.3rem;"><span class="mini-badge">Pendiente de aprobación</span></div>
+                <div class="foot"><span class="meta"></span><span class="avatar-stack"><span class="avatar sm av6">LP</span></span></div>
+              </div>
+            </div>
+            <div class="kcol" data-st="WAITING">
+              <div class="kcol-head"><span class="t"><i></i>Suspendido / Cancelado <i class="dot">1</i></span><span class="count">1</span></div>
+              <div class="kcard" data-st="WAITING">
+                <div class="top"><span><span class="key">SKY-11</span></span><span class="mini-badge ghost">Suspendido</span></div>
+                <span class="title">Migración del archivo histórico</span>
+                <div class="foot"><span class="meta"></span><span class="avatar-stack"><span class="avatar sm av0">JT</span></span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <ol class="legend">
+        <li><i class="dot">1</i><span>A diferencia de los demás roles no administrativos, ves también la columna <strong>Suspendido/Cancelado</strong>.</span></li>
+      </ol>
+      <p style="font-size:.84rem;">Ves <strong>todos los tickets</strong> del sistema como cards completas, en 4 columnas — solo falta Entrada, que es la bandeja interna del Coordinador. <strong>Solo lectura</strong>: no arrastrás cards ni editás nada.</p>
+    </figure>
+  </section>
+
+  <!-- ═══════════ Ciclo de vida ═══════════ -->
+  <section class="card">
+    <h2><span class="num"></span> El ciclo de vida de un ticket</h2>
+    <div class="flow">
+      <div class="step" data-st="BACKLOG"><b>1 · Entrada</b><small>El coordinador crea el ticket.</small></div>
+      <div class="arrow">→</div>
+      <div class="step" data-st="TODO"><b>2 · Por hacer</b><small>Al asignar ejecutores, el ticket pasa a «Por hacer» y se les notifica.</small></div>
+      <div class="arrow">→</div>
+      <div class="step" data-st="IN_PROGRESS"><b>3 · En progreso</b><small>El ejecutor arrastra su card cuando empieza a trabajar.</small></div>
+      <div class="arrow">→</div>
+      <div class="step" data-st="DONE"><b>4 · Concluido</b><small>El ejecutor arrastra a «Concluido» → queda <em>Pendiente de aprobación</em> hasta que el coordinador apruebe.</small></div>
+    </div>
+    <ul>
+      <li><strong>Pendiente de aprobación</strong>: cuando el ejecutor concluye, el trabajo no se da por cerrado. El coordinador puede <strong>Aprobar</strong> (queda concluido definitivo) o <strong>Rechazar</strong> con un motivo obligatorio — en ese caso el ticket vuelve a <span class="badge-status" data-st="IN_PROGRESS">En progreso</span> y el motivo aparece como comentario en el seguimiento.</li>
+      <li><strong>Suspensión</strong>: el coordinador puede suspender un ticket en cualquier momento; queda <span class="badge-status" data-st="WAITING">Suspendido / Cancelado</span> con el rótulo <kbd class="ui">Bloqueado por coordinador</kbd> y nadie puede moverlo hasta que él mismo lo reactive (vuelve al estado que tenía).</li>
+      <li><strong>Archivo</strong>: los tickets <span class="badge-status" data-st="DONE">Concluidos</span> o <span class="badge-status" data-st="WAITING">Suspendidos/Cancelados</span> se pueden archivar para despejar el tablero. Se consultan en <kbd class="ui">Archivados</kbd> (menú de usuario).</li>
+      <li><strong>Vencimiento</strong>: si el ticket tiene fecha de vencimiento y se pasa, la fecha destella en rojo en la card y el sistema avisa por notificación.</li>
+    </ul>
+  </section>
+
+  <!-- ═══════════ Detalle del ticket ═══════════ -->
+  <section class="card">
+    <h2><span class="num"></span> El detalle de un ticket</h2>
+    <p>Al hacer clic en el código o el título de una card se abre el detalle: a la izquierda los datos y acciones, a la derecha el chat de <strong>Seguimiento</strong>.</p>
+
+    <figure class="shot">
+      <figcaption>Detalle del ticket SKY-18</figcaption>
+      <div class="frame">
+        <div class="frame-bar"><span class="lights"><i></i><i></i><i></i></span><span class="url">skydesk.redlinegs.com/18/</span></div>
+        <div class="frame-body scrollx">
+          <div class="detail">
+            <div>
+              <div class="panel">
+                <div class="panel-head">
+                  <span class="key">SKY-18</span>
+                  <span style="display:flex; gap:.3rem; align-items:center;">
+                    <span class="mini-badge">Pendiente de aprobación</span>
+                    <i class="dot">1</i>
+                  </span>
+                </div>
+                <div class="panel-body">
+                  <h4>Informe mensual de avance</h4>
+                  <p style="margin:.3rem 0 0; font-size:.72rem; color: color-mix(in oklab, var(--ink) 60%, transparent);">Compilar el informe de avance de obra de julio con el registro fotográfico y las mediciones.</p>
+                  <div style="margin-top:.4rem;"><span class="lchip success">Informe</span></div>
+                </div>
+                <div class="frow"><span class="k">Solicitante</span><span>Gerencia de obra</span></div>
+                <div class="frow"><span class="k">Modalidad</span><span><span class="mini-badge ghost">Individual</span></span></div>
+                <div class="frow"><span class="k">Proyecto</span><span><span class="key" style="font-size:.64rem;">TNO</span> · Torre Norte</span></div>
+                <div class="frow"><span class="k">Prioridad</span><span><span class="mini-badge info">Media</span></span></div>
+                <div class="frow"><span class="k">Vence</span><span>31/07/2026</span></div>
+                <div class="frow"><span class="k">Creado por</span><span>Carla Quispe</span></div>
+                <div class="actions" data-roles="COORDINADOR">
+                  <span class="mbtn success block">Aprobar conclusión</span>
+                  <span class="mbtn error outline block">Rechazar conclusión</span>
+                  <span style="display:flex; justify-content:center;"><i class="dot">2</i></span>
+                  <span class="mbtn edit block">Editar ticket</span>
+                  <div class="row">
+                    <span class="mbtn info">Dividir</span>
+                    <span class="mbtn info outline">Derivar</span>
+                    <span class="mbtn warning">Suspender</span>
+                    <span class="mbtn secondary">Archivar</span>
+                  </div>
+                  <span style="display:flex; justify-content:center;"><i class="dot">3</i></span>
+                </div>
+              </div>
+              <div class="panel">
+                <div class="panel-body">
+                  <h4 style="font-size:.78rem;">Ejecutores <span style="font-weight:400; color: color-mix(in oklab, var(--ink) 40%, transparent);">(R)</span></h4>
+                  <div class="person">
+                    <span class="avatar av3">MR</span>
+                    <span>
+                      <span class="who">Marco Rojas <span class="mini-badge">Concluido</span> <span class="mini-badge warning">sin aprobar</span> <i class="dot">4</i></span>
+                      <span class="sub">Por hacer: 1 d 2 h · En progreso: 3 d 4 h</span>
+                    </span>
+                  </div>
+                  <h4 style="font-size:.78rem; margin-top:.6rem;">Expertos <span style="font-weight:400; color: color-mix(in oklab, var(--ink) 40%, transparent);">(C)</span></h4>
+                  <div class="person"><span class="avatar av6">LP</span><span class="who" style="font-weight:400;">Lucía Paredes</span></div>
+                </div>
+              </div>
+            </div>
+            <div>
+              <div class="panel">
+                <div class="panel-head"><h4>Seguimiento</h4><i class="dot">5</i></div>
+                <div class="chat-msgs">
+                  <div class="msg">
+                    <span class="avatar">CQ</span>
+                    <span class="body">
+                      <span class="who"><b>Carla Quispe</b><span>21/07/2026 09:14</span></span>
+                      <div class="bubble">Marco, acordate de incluir las mediciones del sector B en el informe.</div>
+                    </span>
+                  </div>
+                  <div class="msg">
+                    <span class="avatar av3">MR</span>
+                    <span class="body">
+                      <span class="who"><b>Marco Rojas</b><span>22/07/2026 16:40</span></span>
+                      <div class="bubble">Listo, subo el borrador con el registro fotográfico.</div>
+                      <span class="att-thumb"><span class="img"></span>avance-julio.jpg</span>
+                      <div class="edit-link">editar <i class="dot">6</i></div>
+                    </span>
+                  </div>
+                </div>
+                <div class="chat-input">
+                  <div class="line">
+                    <span class="finput">Escribí un mensaje de seguimiento…</span>
+                    <span class="mbtn success">➤</span>
+                  </div>
+                  <div class="dropzone">⇪ Arrastrá archivos acá o <b>elegilos</b> <i class="dot">7</i></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <ol class="legend">
+        <li><i class="dot">1</i><span><strong>Estado del ticket</strong>: acá se ven también los rótulos «Bloqueado por coordinador», «Dividido ×N» o «Derivados ×N» cuando corresponde.</span></li>
+        <li data-roles="COORDINADOR"><i class="dot">2</i><span><strong>Aprobar / Rechazar</strong>: aparecen cuando hay una conclusión pendiente. Rechazar pide un motivo obligatorio (ver más abajo).</span></li>
+        <li data-roles="COORDINADOR"><i class="dot">3</i><span><strong>Dividir</strong> crea una parte idéntica para repartir el mismo trabajo · <strong>Derivar</strong> crea un subticket vacío para una subtarea distinta · <strong>Suspender</strong> bloquea el ticket · <strong>Archivar</strong> lo saca del tablero (solo si está Concluido o Suspendido).</span></li>
+        <li><i class="dot">4</i><span><strong>Subticket de cada ejecutor</strong> con su estado, si está aprobado, y los tiempos en cada etapa.</span></li>
+        <li><i class="dot">5</i><span><strong>Chat de seguimiento</strong> en tiempo real. En tickets divididos o derivados incluye la conversación heredada del padre.</span></li>
+        <li><i class="dot">6</i><span>Solo tu <strong>último mensaje</strong> se puede editar o borrar (el coordinador puede moderar cualquiera).</span></li>
+        <li><i class="dot">7</i><span><strong>Adjuntos</strong>: imágenes, PDF, Word, Excel, PowerPoint, CSV y TXT. Las imágenes se pueden <strong>anotar</strong> (dibujar encima): cada anotación se publica como nueva versión en el chat.</span></li>
+      </ol>
+    </figure>
+    <p data-roles="EJECUTOR EXPERTO SEGUIMIENTO" style="font-size:.88rem;">Los botones de gestión (Aprobar, Rechazar, Editar, Dividir…) solo los ve el Coordinador; tu vista muestra los datos, los ejecutores y el chat.</p>
+  </section>
+
+  <!-- ═══════════ Crear un ticket (Coordinador) ═══════════ -->
+  <section class="card" data-roles="COORDINADOR">
+    <h2><span class="num"></span> Crear un ticket <span class="badge-role" data-role="COORDINADOR">Coordinador</span></h2>
+    <p>Con el botón <kbd class="ui">+ Ticket</kbd> del menú se abre el formulario:</p>
+
+    <figure class="shot">
+      <figcaption>Formulario de nuevo ticket</figcaption>
+      <div class="frame">
+        <div class="frame-bar"><span class="lights"><i></i><i></i><i></i></span><span class="url">skydesk.redlinegs.com/nuevo/</span></div>
+        <div class="frame-body scrollx">
+          <div class="form-mock">
+            <div class="panel"><div class="panel-body">
+              <div class="fgroup"><label>Título</label><span class="finput" style="display:block;">Relevamiento fotográfico sector norte</span></div>
+              <div class="fgroup"><label>Solicitante</label><span class="finput" style="display:block;">Gerencia de obra</span></div>
+              <div class="fgroup"><label>Descripción</label><span class="finput" style="display:block; white-space:normal;">Registrar el estado de la fachada norte antes del montaje…</span></div>
+              <div class="fcols">
+                <div class="fgroup"><label>Proyecto</label><span class="fselect"><span class="finput" style="display:block;">TNO · Torre Norte</span></span></div>
+                <div class="fgroup"><label>Prioridad</label><span class="fselect"><span class="finput" style="display:block;">Alta</span></span></div>
+                <div class="fgroup"><label>Vence</label><span class="finput" style="display:block;">28/07/2026</span></div>
+              </div>
+              <div class="fgroup">
+                <label>Tipos de Actividad</label>
+                <div style="display:flex; gap:.4rem; flex-wrap:wrap;">
+                  <span class="fcheck"><i style="background:var(--primary); border-color:var(--primary);"></i><span class="lchip">Relevamiento</span></span>
+                  <span class="fcheck"><i></i><span class="lchip warning">Obra</span></span>
+                  <span class="fcheck"><i></i><span class="lchip success">Informe</span></span>
+                </div>
+              </div>
+              <div class="fgroup">
+                <span class="fcheck"><i></i>Con subproductos</span> <i class="dot">1</i>
+                <p class="hint">Cada ejecutor tiene su propio subticket y avanza a su ritmo.</p>
+              </div>
+              <div class="fcols" style="grid-template-columns: 1fr 1fr;">
+                <div class="fgroup">
+                  <label>Ejecutores <span class="aux">(R)</span> <i class="dot">2</i></label>
+                  <div class="fpick">
+                    <span class="opt"><i class="on"></i><span class="avatar sm av3">MR</span> Marco Rojas</span>
+                    <span class="opt"><i></i><span class="avatar sm av0">JT</span> Jorge Ticona</span>
+                  </div>
+                  <p class="hint">Uno o varios. Al asignar, el ticket pasa a «Por hacer».</p>
+                </div>
+                <div class="fgroup">
+                  <label>Expertos <span class="aux">(C)</span></label>
+                  <div class="fpick">
+                    <span class="opt"><i class="on"></i><span class="avatar sm av6">LP</span> Lucía Paredes</span>
+                  </div>
+                  <p class="hint">Opcional (consultores).</p>
+                </div>
+              </div>
+              <div style="display:flex; gap:.4rem; justify-content:flex-end; margin-top:.4rem;">
+                <span class="mbtn ghost">Cancelar</span>
+                <span class="mbtn success">Guardar</span>
+              </div>
+            </div></div>
+          </div>
+        </div>
+      </div>
+      <ol class="legend">
+        <li><i class="dot">1</i><span><strong>Con subproductos</strong>: marcalo si cada ejecutor entrega algo propio; si no, la modalidad es colaborativa (estado compartido).</span></li>
+        <li><i class="dot">2</i><span>Si no asignás ejecutores, el ticket queda en <span class="badge-status" data-st="BACKLOG">Entrada</span>. Al asignar, pasa a <span class="badge-status" data-st="TODO">Por hacer</span> y se notifica a los asignados.</span></li>
+      </ol>
+    </figure>
+  </section>
+
+  <!-- ═══════════ Aprobar / Rechazar (Coordinador) ═══════════ -->
+  <section class="card" data-roles="COORDINADOR">
+    <h2><span class="num"></span> Aprobar o rechazar una conclusión <span class="badge-role" data-role="COORDINADOR">Coordinador</span></h2>
+    <p>Cuando un ejecutor concluye, te llega una notificación y el ticket muestra <span class="mini-badge">Pendiente de aprobación</span>. En el detalle aparecen los dos botones:</p>
+    <ul>
+      <li><kbd class="ui">Aprobar conclusión</kbd> — confirma el trabajo: el ticket queda <span class="badge-status" data-st="DONE">Concluido</span> definitivo.</li>
+      <li><kbd class="ui">Rechazar conclusión</kbd> — abre este diálogo con <strong>motivo obligatorio</strong>; el ticket vuelve a <span class="badge-status" data-st="IN_PROGRESS">En progreso</span> y el ejecutor recibe el motivo como comentario y notificación:</li>
+    </ul>
+
+    <figure class="shot">
+      <figcaption>Diálogo de rechazo</figcaption>
+      <div class="frame">
+        <div class="modal-stage">
+          <div class="modal-box">
+            <h5>Rechazar conclusión de SKY-18</h5>
+            <div class="ftextarea">Qué falta o qué hay que corregir…</div>
+            <div style="display:flex; justify-content:flex-end; gap:.4rem; margin-top:.6rem;">
+              <span class="mbtn ghost">Cancelar</span>
+              <span class="mbtn error">Rechazar</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </figure>
+
+    <h3>Otras acciones de gestión</h3>
+    <ul>
+      <li><kbd class="ui">Suspender</kbd> congela el ticket (rótulo «Bloqueado por coordinador»); <kbd class="ui">Reactivar</kbd> lo devuelve al estado en que estaba.</li>
+      <li><kbd class="ui">Dividir</kbd> crea una copia idéntica numerada (-1, -2…) para repartir el mismo trabajo; ambas quedan vinculadas.</li>
+      <li><kbd class="ui">Derivar</kbd> crea un subticket vacío que cuelga del padre; su chat hereda la conversación del original.</li>
+      <li><kbd class="ui">Archivar</kbd> (solo Concluidos o Suspendidos) lo saca del tablero; se recupera desde <kbd class="ui">Archivados</kbd> con <kbd class="ui">Desarchivar</kbd>, que solo el Coordinador puede usar.</li>
+    </ul>
+  </section>
+
+  <!-- ═══════════ Trabajar tus tickets (Ejecutor) ═══════════ -->
+  <section class="card" data-roles="EJECUTOR">
+    <h2><span class="num"></span> Trabajar tus tickets <span class="badge-role" data-role="EJECUTOR">Ejecutor</span></h2>
+    <ul>
+      <li>Cuando te asignan un ticket te llega una <strong>notificación</strong> y la card aparece en <span class="badge-status" data-st="TODO">Por hacer</span>.</li>
+      <li>Al empezar, <strong>arrastrá tu card</strong> a <span class="badge-status" data-st="IN_PROGRESS">En progreso</span>. El sistema registra cuánto tiempo pasa en cada estado.</li>
+      <li>Cuando terminás, <strong>arrastrá tu card a <span class="badge-status" data-st="DONE">Concluido</span></strong>. Queda con el rótulo <span class="mini-badge warning">sin aprobar</span> hasta que el coordinador revise.</li>
+      <li>Si el coordinador <strong>rechaza</strong>, el ticket vuelve a <span class="badge-status" data-st="IN_PROGRESS">En progreso</span> y el motivo te llega como comentario y notificación — corregí y volvé a concluir.</li>
+      <li>Documentá tu avance en el <strong>chat de seguimiento</strong> y adjuntá los productos de tu trabajo.</li>
+    </ul>
+
+    <figure class="shot">
+      <figcaption>Mis tickets — tu lista de pendientes</figcaption>
+      <div class="frame">
+        <div class="frame-bar"><span class="lights"><i></i><i></i><i></i></span><span class="url">skydesk.redlinegs.com/mis-tickets/</span></div>
+        <div class="frame-body scrollx">
+          <div style="padding:.8rem; min-width:34rem;">
+            <div style="display:flex; justify-content:flex-end; margin-bottom:.5rem;">
+              <span class="mbtn ghost">Ordenar: por vencimiento ▾ <i class="dot">1</i></span>
+            </div>
+            <div class="panel"><div style="display:flex; align-items:center; gap:.6rem; padding:.5rem .8rem; font-size:.76rem;">
+              <span class="prio-bars" data-p="URGENT"><i></i><i></i><i></i><i></i></span>
+              <span class="key" style="color:var(--accent); font-family:ui-monospace,monospace; font-size:.68rem; font-weight:700;">SKY-21</span>
+              <span style="font-weight:700; flex:1;">Calibración de equipos de medición</span>
+              <span class="mini-badge warning">En progreso</span>
+              <span style="font-size:.66rem; color:var(--error); font-weight:700;">venció 21/07</span>
+            </div></div>
+            <div class="panel"><div style="display:flex; align-items:center; gap:.6rem; padding:.5rem .8rem; font-size:.76rem;">
+              <span class="prio-bars" data-p="HIGH"><i></i><i></i><i></i><i></i></span>
+              <span class="key" style="color:var(--accent); font-family:ui-monospace,monospace; font-size:.68rem; font-weight:700;">SKY-24</span>
+              <span style="font-weight:700; flex:1;">Relevamiento fotográfico sector norte</span>
+              <span class="mini-badge info">Por hacer</span>
+              <span style="font-size:.66rem; color: color-mix(in oklab, var(--ink) 45%, transparent);">vence 28/07</span>
+            </div></div>
+          </div>
+        </div>
+      </div>
+      <ol class="legend">
+        <li><i class="dot">1</i><span>Podés ordenar por <strong>vencimiento, prioridad, actividad o modificación</strong>. Los tickets ya concluidos y aprobados salen de la lista.</span></li>
+      </ol>
+    </figure>
+  </section>
+
+  <!-- ═══════════ Experto ═══════════ -->
+  <section class="card" data-roles="EXPERTO">
+    <h2><span class="num"></span> Acompañar como consultor <span class="badge-role" data-role="EXPERTO">Experto</span></h2>
+    <ul>
+      <li>El coordinador te suma a un ticket como <strong>experto</strong> (consultor). En el tablero ves los tickets donde participás, como cards completas.</li>
+      <li>Podés <strong>leer y escribir en el chat de seguimiento de los tickets donde participás</strong>, para aportar tu criterio.</li>
+      <li>También tenés acceso al <kbd class="ui">Dashboard</kbd> de métricas.</li>
+      <li>No creás, movés ni cerrás tickets: tu aporte pasa por la conversación y los adjuntos.</li>
+    </ul>
+  </section>
+
+  <!-- ═══════════ Seguimiento ═══════════ -->
+  <section class="card" data-roles="SEGUIMIENTO">
+    <h2><span class="num"></span> Observar el trabajo <span class="badge-role" data-role="SEGUIMIENTO">Seguimiento</span></h2>
+    <ul>
+      <li>Rol de <strong>solo lectura</strong>: ves <strong>todos</strong> los tickets del tablero (incluida la columna <span class="badge-status" data-st="WAITING">Suspendido / Cancelado</span>) y todas las conversaciones en <kbd class="ui">Seguimiento</kbd>.</li>
+      <li>Tenés acceso al <kbd class="ui">Dashboard</kbd> con las métricas del equipo.</li>
+      <li>No escribís en los chats, no movés cards ni editás tickets.</li>
+    </ul>
+  </section>
+
+  <!-- ═══════════ Notificaciones ═══════════ -->
+  <section class="card">
+    <h2><span class="num"></span> Notificaciones</h2>
+
+    <figure class="shot">
+      <figcaption>La campanita, desplegada</figcaption>
+      <div class="frame"><div class="frame-body">
+        <div class="drop">
+          <div class="drop-head"><span>Notificaciones</span><a>Ver todas</a></div>
+          <div class="notif unread">Carla Quispe te asignó SKY-24<span class="when">hace 2 h</span></div>
+          <div class="notif unread">SKY-21 vence hoy<span class="when">hace 5 h</span></div>
+          <div class="notif">Carla Quispe comentó en SKY-18<span class="when">ayer</span></div>
+        </div>
+      </div></div>
+    </figure>
+
+    <ul>
+      <li>La <strong>campanita</strong> del menú siempre recibe todo: asignaciones, conclusiones pendientes de aprobación, aprobaciones y rechazos, suspensiones, comentarios nuevos y avisos de vencimiento.</li>
+      <li>Por <strong>correo</strong> llegan las asignaciones (activado por defecto); los comentarios por correo están desactivados por defecto para no inundar la casilla.</li>
+      <li>Cada mañana el sistema avisa por los tickets que <strong>vencen hoy, vencen mañana o vencieron ayer</strong>, al solicitante y a los asignados.</li>
+      <li data-roles="COORDINADOR">Como coordinador, recibís aviso cuando un ejecutor concluye y su trabajo queda pendiente de tu aprobación.</li>
+    </ul>
+  </section>
+
+</main>
+
+<footer>
+  <p>Las pantallas de esta guía son reproducciones ilustrativas de la interfaz. Los permisos exactos de cada rol pueden ser ajustados por el superusuario del sistema, por lo que tu pantalla puede diferir levemente de lo descrito. Esta guía no cubre las funciones de configuración que le están reservadas.</p>
+</footer>
+
+<script>
+  (function () {
+    var KEY = 'skydesk-tutorial-rol';
+    var chips = Array.prototype.slice.call(document.querySelectorAll('.chip'));
+    var targets = Array.prototype.slice.call(document.querySelectorAll('[data-roles]'));
+
+    function apply(role) {
+      chips.forEach(function (c) {
+        c.setAttribute('aria-pressed', c.dataset.role === role ? 'true' : 'false');
+      });
+      targets.forEach(function (el) {
+        el.hidden = el.dataset.roles.split(' ').indexOf(role) === -1;
+      });
+    }
+
+    chips.forEach(function (c) {
+      c.addEventListener('click', function () {
+        try { localStorage.setItem(KEY, c.dataset.role); } catch (e) {}
+        apply(c.dataset.role);
+      });
+    });
+
+    var saved = 'COORDINADOR';
+    try { saved = localStorage.getItem(KEY) || 'COORDINADOR'; } catch (e) {}
+    if (!chips.some(function (c) { return c.dataset.role === saved; })) saved = 'COORDINADOR';
+    apply(saved);
+  })();
+</script>
+
+</body>
+</html>
