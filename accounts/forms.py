@@ -8,6 +8,8 @@ from .models import (
     AllowedDomain, AllowedEmail, BlockedEmail, Company, EmailConfig, NextcloudOAuthConfig, Role,
 )
 
+from .tenancy import company_path, get_user_company, is_member
+
 _INPUT = 'input input-bordered w-full'
 _SELECT = 'select select-bordered w-full'
 _CHECKBOX = 'checkbox checkbox-primary'
@@ -49,8 +51,10 @@ class EmailAuthenticationForm(AuthenticationForm):
         widget=forms.CheckboxInput(attrs={'class': 'checkbox checkbox-primary checkbox-sm'}),
     )
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, company=None, **kwargs):
         super().__init__(*args, **kwargs)
+        self.company = company
+        self.own_login_url = None
         self.fields['username'].label = 'Correo electrónico'
         self.fields['username'].widget = forms.EmailInput(attrs={
             'class': _INPUT, 'autofocus': True, 'placeholder': 'tu.correo@empresa.com',
@@ -58,6 +62,20 @@ class EmailAuthenticationForm(AuthenticationForm):
         self.fields['password'].widget = forms.PasswordInput(attrs={
             'class': _INPUT, 'placeholder': '••••••••',
         })
+
+    def confirm_login_allowed(self, user):
+        """El login de `/<slug>/` solo acepta miembros de esa empresa (o superuser). Corre
+        después de validar la contraseña: no permite enumerar correos."""
+        super().confirm_login_allowed(user)
+        if self.company is None or user.is_superuser or is_member(user, self.company):
+            return
+        own = get_user_company(user)
+        if own is not None and own.is_active:
+            self.own_login_url = company_path(own, 'accounts:login')
+        raise forms.ValidationError(
+            'Esta cuenta no pertenece a %(brand)s.', code='not_member',
+            params={'brand': self.company.name},
+        )
 
 
 class ActivationForm(SetPasswordForm):
@@ -128,11 +146,18 @@ class AdminUserEditForm(forms.ModelForm):
 
 
 class StyledPasswordResetForm(PasswordResetForm):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, company=None, **kwargs):
         super().__init__(*args, **kwargs)
+        self.company = company
         self.fields['email'].widget = forms.EmailInput(attrs={
             'class': _INPUT, 'autofocus': True, 'placeholder': 'tu.correo@empresa.com',
         })
+
+    def get_users(self, email):
+        """Con empresa (reset en `/<slug>/`), solo sus miembros; sin empresa, todos."""
+        for user in super().get_users(email):
+            if self.company is None or is_member(user, self.company):
+                yield user
 
 
 class InviteForm(forms.Form):
@@ -318,6 +343,19 @@ class CompanyForm(forms.ModelForm):
 
     def clean_ticket_prefix(self):
         return (self.cleaned_data.get('ticket_prefix') or '').strip().upper()
+
+
+class CompanySenderForm(forms.ModelForm):
+    """Remitente con el que firma la empresa (sección «Remitente de los correos» de
+    Cuentas). Solo superuser; el SMTP es global y vive en companies:email_config."""
+
+    class Meta:
+        model = Company
+        fields = ('email_from_name', 'email_from')
+        widgets = {
+            'email_from_name': forms.TextInput(attrs={'class': _INPUT, 'placeholder': 'Embol Tickets'}),
+            'email_from': forms.EmailInput(attrs={'class': _INPUT, 'placeholder': 'tickets@embol.com'}),
+        }
 
 
 class BlockedEmailForm(forms.ModelForm):

@@ -9,7 +9,7 @@
       Título: SIEMPRE el nombre del producto. La marca de la empresa va debajo: su logo
       si lo cargó, si no su nombre; sin empresa (login genérico) el "powered by".
       {% endcomment %}
-      <h1 class="text-6xl font-black tracking-tight text-primary">{{ product_name }}</h1>
+      {% block auth_title %}<h1 class="text-6xl font-black tracking-tight text-primary">{{ product_name }}</h1>{% endblock %}
       <div class="flex items-center justify-center gap-3 mt-3 text-xl text-base-content/50">
         {% if brand_logo_light_url %}
           <img src="{{ brand_logo_light_url }}" alt="{{ brand_name }}" class="block dark:hidden h-10 w-auto">

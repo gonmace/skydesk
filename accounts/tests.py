@@ -771,3 +771,82 @@ class UserEditPermissionOverrideViewTests(TestCase):
             'first_name': 'Coord', 'last_name': 'Uno', 'role': Role.EJECUTOR.value,
         })
         self.assertFalse(UserPermission.objects.filter(user=self.coord).exists())
+
+
+class SuperuserOnlyAdminTests(TestCase):
+    """Empresas, SMTP y pertenencia a empresas (Profile) en el admin de Django: solo
+    superuser, aunque una cuenta staff tenga todos los permisos de modelo."""
+
+    def test_staff_with_model_perms_is_locked_out(self):
+        from django.contrib import admin
+        from django.contrib.auth.models import Permission
+        from django.test import RequestFactory
+
+        staff = make_user('staff@embol.com', Role.COORDINADOR)
+        staff.is_staff = True
+        staff.save(update_fields=['is_staff'])
+        staff.user_permissions.set(Permission.objects.filter(content_type__app_label='accounts'))
+        staff = User.objects.get(pk=staff.pk)  # sin cache de permisos
+        root = User.objects.create_superuser('root@embol.com', 'root@embol.com', 'ClaveReal123')
+
+        for model in (Company, EmailConfig, Profile):
+            model_admin = admin.site._registry[model]
+            for user, expected in ((staff, False), (root, True)):
+                request = RequestFactory().get('/')
+                request.user = user
+                self.assertEqual(model_admin.has_module_permission(request), expected, model)
+                self.assertEqual(model_admin.has_view_permission(request), expected, model)
+                self.assertEqual(model_admin.has_add_permission(request), expected, model)
+                self.assertEqual(model_admin.has_change_permission(request), expected, model)
+                self.assertEqual(model_admin.has_delete_permission(request), expected, model)
+
+
+@override_settings(**OV)
+class CompanyLoginScopeTests(TestCase):
+    """El login/reset de `/<slug>/` solo acepta miembros (o superuser)."""
+
+    def setUp(self):
+        self.other = Company.objects.create(name='Otra', slug='otra', ticket_prefix='OTR')
+
+    def _login(self, email, password='ClaveReal123'):
+        return self.client.post(reverse('accounts:login'), {'username': email, 'password': password})
+
+    def test_main_member_logs_in(self):
+        make_user('m@empresa.com', password='ClaveReal123')
+        self.assertEqual(self._login('m@empresa.com').status_code, 302)
+        self.assertIn('_auth_user_id', self.client.session)
+
+    def test_extra_company_member_logs_in(self):
+        make_user('x@empresa.com', password='ClaveReal123', company=self.other,
+                  extra_companies=[self.company])
+        self.assertEqual(self._login('x@empresa.com').status_code, 302)
+        self.assertIn('_auth_user_id', self.client.session)
+
+    def test_other_company_user_is_rejected(self):
+        make_user('o@otra.com', password='ClaveReal123', company=self.other)
+        r = self._login('o@otra.com')
+        self.assertEqual(r.status_code, 200)
+        self.assertNotIn('_auth_user_id', self.client.session)
+        self.assertContains(r, 'no pertenece a')
+        self.assertContains(r, '/otra/acceso/login/')
+
+    def test_wrong_password_gives_generic_error(self):
+        make_user('o@otra.com', password='ClaveReal123', company=self.other)
+        r = self._login('o@otra.com', password='mala')
+        self.assertNotContains(r, 'no pertenece a')
+
+    def test_superuser_logs_in_any_company(self):
+        User.objects.create_superuser('root@x.com', 'root@x.com', 'ClaveReal123')
+        self.assertEqual(self._login('root@x.com').status_code, 302)
+        self.assertIn('_auth_user_id', self.client.session)
+
+    def test_reset_skips_users_of_other_company(self):
+        make_user('o@otra.com', company=self.other)
+        r = self.client.post(reverse('accounts:password_reset'), {'email': 'o@otra.com'})
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_reset_sends_to_member(self):
+        make_user('m@empresa.com')
+        self.client.post(reverse('accounts:password_reset'), {'email': 'm@empresa.com'})
+        self.assertEqual(len(mail.outbox), 1)

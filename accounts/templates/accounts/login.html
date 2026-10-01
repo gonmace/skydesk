@@ -1,6 +1,12 @@
 {% extends 'accounts/_auth_base.html' %}
 {% load static %}
 {% block title %}Iniciar sesión{% endblock %}
+{% block auth_title %}{% if current_company.slug == 'redline' %}
+<h1 class="flex justify-center">
+  <img src="{% static 'img/logo.svg' %}" alt="{{ product_name }}" class="block dark:hidden h-16 w-auto">
+  <img src="{% static 'img/logo-dark.svg' %}" alt="{{ product_name }}" class="hidden dark:block h-16 w-auto">
+</h1>
+{% else %}<h1 class="text-6xl font-black tracking-tight text-primary">{{ product_name }}</h1>{% endif %}{% endblock %}
 {% block auth_subtitle %}Iniciá sesión con tu correo{% endblock %}
 
 {% block auth_content %}
@@ -9,7 +15,7 @@
   {% csrf_token %}
 
   {% if form.non_field_errors %}
-    <div class="alert alert-error text-sm py-2"><span>{{ form.non_field_errors.0 }}</span></div>
+    <div class="alert alert-error text-sm py-2"><span>{{ form.non_field_errors.0 }}{% if form.own_login_url %} <a href="{{ form.own_login_url }}" class="link font-medium">Ir al login de tu empresa</a>{% endif %}</span></div>
   {% endif %}
 
   <div>

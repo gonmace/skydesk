@@ -128,21 +128,33 @@
     </div>
   </section>
 
-  {% if email_config_form %}
-  <!-- Correo saliente (SMTP) — solo superuser; la config es GLOBAL del servidor -->
+  {% if sender_form %}
+  <!-- Remitente de la empresa — solo superuser. El SMTP es global: /empresas/correo/ -->
   <section class="bg-base-100 rounded-2xl border border-base-300 p-5 lg:col-span-2">
-    <h2 class="text-sm font-bold mb-1">Correo saliente (SMTP)</h2>
+    <h2 class="text-sm font-bold mb-1">Remitente de los correos</h2>
     <p class="text-xs text-base-content/50 mb-4">
-      Configuración global del servidor, común a todas las empresas: es la cuenta que envía
-      invitaciones, recuperación de contraseña y avisos. El remitente con el que firma cada
-      empresa se define en su ficha (<a class="link" href="{% url 'companies:edit' current_company.slug %}">Marca</a>).
-      «Enviar correo de prueba» usa los valores del formulario sin guardarlos y manda un
-      correo a tu cuenta ({{ request.user.email }}).
+      Cómo firma «{{ current_company.name }}» sus invitaciones, recuperación de contraseña y avisos.
+      Vacío = el remitente del servidor. Ahora se envía como
+      <span class="font-mono">{{ sender_effective }}</span>.
+      El servidor SMTP es común a todas las empresas y se configura en
+      <a class="link" href="{% url 'companies:email_config' %}">Correo (SMTP)</a>.
     </p>
-    <form method="post" action="{% url 'companies:email_config' %}" class="space-y-4" data-submit-spinner>
+    <form method="post" class="space-y-4" data-submit-spinner>
       {% csrf_token %}
-      <input type="hidden" name="next" value="{{ request.get_full_path }}">
-      {% with form=email_config_form %}{% include 'accounts/_email_config_fields.html' %}{% endwith %}
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label class="label" for="{{ sender_form.email_from_name.id_for_label }}"><span class="label-text font-medium">{{ sender_form.email_from_name.label }}</span></label>
+          {{ sender_form.email_from_name }}
+        </div>
+        <div>
+          <label class="label" for="{{ sender_form.email_from.id_for_label }}"><span class="label-text font-medium">{{ sender_form.email_from.label }}</span></label>
+          {{ sender_form.email_from }}
+          <p class="text-xs text-base-content/40 mt-1">{{ sender_form.email_from.help_text }}</p>
+        </div>
+      </div>
+      <div class="flex justify-end">
+        <button type="submit" name="action" value="save_sender" class="btn btn-success btn-sm" data-spinner-label="Guardando…">Guardar</button>
+      </div>
     </form>
   </section>
   {% endif %}

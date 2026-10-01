@@ -150,7 +150,7 @@
 
   {% if company %}
   {# ── Miembros adicionales: usuarios de OTRA empresa que también operan en esta ── #}
-  <div class="bg-base-100 rounded-2xl border border-base-300 p-6 space-y-4 mt-6">
+  <div id="miembros" class="bg-base-100 rounded-2xl border border-base-300 p-6 space-y-4 mt-6 scroll-mt-20">
     <h2 class="text-sm font-bold">Usuarios de otras empresas con acceso</h2>
     <p class="text-xs text-base-content/50">
       Cuentas cuya empresa principal es otra pero que también operan en «{{ company.name }}», con su mismo rol.

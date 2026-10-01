@@ -86,6 +86,8 @@ Varias empresas en un mismo servidor, datos totalmente aislados. Modelo `account
   `is_email_allowed(company, email)`; `get_backend(name, company=)`;
   `broadcast_board(company_id, ticket_id)` (grupo WS `board_<company_id>`).
   Nunca `reverse()` dentro de un thread (sin prefijo): usar `accounts.tenancy.company_url`.
+- **Login/reset por empresa:** el de `/<slug>/` solo acepta miembros (o superuser); el
+  genérico sin prefijo acepta a todos y redirige a la principal.
 - **Migraciones que siembran capacidades** deben iterar `Company.objects.all()`.
 - **Nextcloud OAuth:** el redirect URI lleva el prefijo → cada empresa registra
   `https://<host>/<slug>/acceso/nextcloud/callback/` en su app OAuth2.

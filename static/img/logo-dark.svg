@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 257 56" role="img" aria-label="Kanban">
+  <title>Kanban</title>
+  <!-- marca: tablero de tres columnas con tarjetas que avanzan -->
+  <rect x="0" y="4" width="48" height="48" rx="12" fill="#e30613"/>
+  <rect x="9" y="13" width="8" height="30" rx="4" fill="#fff" opacity=".45"/>
+  <rect x="20" y="13" width="8" height="21" rx="4" fill="#fff" opacity=".75"/>
+  <rect x="31" y="13" width="8" height="12" rx="4" fill="#fff"/>
+  <!-- palabra: trazo redondeado; las bolsas (a, b, a) en rojo = tarjetas -->
+  <g transform="translate(62 3)" fill="none" stroke="#ffffff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4 3V47M21 25L5 37M11 32L22 47"/>
+    <path d="M54 25V47M65 25V47"/>
+    <path d="M65 35a10 10 0 0 1 20 0V47" transform="translate(0 0)"/>
+    <path d="M97 3V47M155 25V47M166 25V47"/>
+    <path d="M166 35a10 10 0 0 1 20 0V47" transform="translate(0 0)"/>
+    <g stroke="#e30613"><circle cx="43" cy="36" r="11"/><circle cx="108" cy="36" r="11"/><circle cx="144" cy="36" r="11"/></g>
+  </g>
+</svg>

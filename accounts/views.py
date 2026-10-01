@@ -24,12 +24,12 @@ from django.views.decorators.http import require_POST
 
 from attachments.forms import NextcloudConfigForm
 from attachments.models import NextcloudConfig
-from core.mail import send_mail_async, send_mail_now
+from core.mail import resolve_from_email, send_mail_async, send_mail_now
 
 from .access import is_email_allowed, is_email_blocked, resolve_default_role
 from .forms import (
     ActivationForm, AdminUserEditForm, AllowedDomainForm, AllowedEmailForm, BlockedEmailForm,
-    EmailAuthenticationForm, EmailConfigForm, InviteForm,
+    CompanySenderForm, EmailAuthenticationForm, EmailConfigForm, InviteForm,
     NextcloudOAuthConfigForm, ProfileNameForm, RequestAccessForm, role_choices_for,
 )
 from .models import (
@@ -187,6 +187,14 @@ def _access_throttle_set_email(email):
     cache.set(f'reqacc:email:{email.lower()}', 1, 600)  # 10 minutos
 
 
+def _neutral(reason):
+    """Respuesta neutra anti-enumeración; en DEBUG agrega el motivo real (solo dev)."""
+    msgs = [{'text': NEUTRAL_MSG, 'tag': 'info'}]
+    if settings.DEBUG:
+        msgs.append({'text': f'[DEV] No se envió correo: {reason}', 'tag': 'warning'})
+    return {'ok': True, 'messages': msgs}
+
+
 def _process_access_request(request, email):
     """Decide y ejecuta qué pasa con una solicitud de acceso; devuelve el resultado
     para que la vista lo muestre (AJAX) o lo vuelque a `messages` (fallback sin JS).
@@ -197,7 +205,8 @@ def _process_access_request(request, email):
     mostrar el error real de SMTP en vez de tragarlo en el log."""
     _access_throttle_bump_ip(request)  # el tope por IP corre siempre, esté o no habilitado
     if not is_email_allowed(request.company, email):
-        return {'ok': True, 'messages': [{'text': NEUTRAL_MSG, 'tag': 'info'}]}
+        return _neutral(f'el correo no está habilitado (ni AllowedEmail ni AllowedDomain activos, '
+                        f'o está bloqueado) en la empresa «{request.company.slug}».')
 
     if _access_throttle_check(request, email) != 'ok':
         return {'ok': False, 'messages': [{
@@ -211,7 +220,7 @@ def _process_access_request(request, email):
         user = _get_or_create_pending_user(email, request.company)
     except OtherCompanyError:
         # Mismo mensaje neutro: no revelar que el correo existe en otra empresa.
-        return {'ok': True, 'messages': [{'text': NEUTRAL_MSG, 'tag': 'info'}]}
+        return _neutral('el correo ya pertenece a otra empresa (o es de un superuser).')
     if user.is_active or user.has_usable_password():
         return {'ok': True, 'messages': [{
             'text': 'Esa cuenta ya está activa. Iniciá sesión.', 'tag': 'info',
@@ -327,6 +336,11 @@ class BrandedPasswordResetView(PasswordResetView):
     """PasswordResetView con la marca de la empresa del prefijo en el asunto/firma del
     correo (el `{% url %}` del cuerpo ya sale prefijado por ser reverse() en request)."""
 
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['company'] = getattr(self.request, 'company', None)
+        return kwargs
+
     def form_valid(self, form):
         self.extra_email_context = {**(self.extra_email_context or {}), 'brand_name': _brand(self.request)}
         return super().form_valid(form)
@@ -336,6 +350,11 @@ class CustomLoginView(LoginView):
     template_name = 'accounts/login.html'
     authentication_form = EmailAuthenticationForm
     redirect_authenticated_user = True
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['company'] = getattr(self.request, 'company', None)
+        return kwargs
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -432,6 +451,19 @@ def access_admin(request):
                         messages.success(request, f'Invitación enviada a «{email}».')
             else:
                 messages.error(request, 'Correo inválido para invitar.')
+        elif action == 'save_sender':
+            # Remitente de la empresa: es parte de su ficha (Marca) → solo superuser.
+            if not request.user.is_superuser:
+                raise PermissionDenied
+            form = CompanySenderForm(request.POST, instance=company)
+            if form.is_valid():
+                form.save()
+                messages.success(request, 'Remitente actualizado.')
+            else:
+                # is_valid() ya pisó los atributos de request.company con el POST inválido.
+                company.refresh_from_db()
+                error = next(iter(form.errors.values()))[0]
+                messages.error(request, f'Remitente inválido: {error}')
         elif action == 'toggle_domain':
             obj = get_object_or_404(AllowedDomain, pk=request.POST.get('id'), company=company)
             obj.is_active = not obj.is_active
@@ -529,10 +561,10 @@ def access_admin(request):
         'blocked': BlockedEmail.objects.filter(company=company),
         'blocked_form': BlockedEmailForm(company=company),
         'invite_form': InviteForm(viewer=request.user),
-        # SMTP global (EmailConfig): editable y probable desde acá solo por el superuser;
-        # el POST va a companies:email_config con next= de vuelta a esta página.
-        'email_config_form': _email_config_form(EmailConfig.load()) if request.user.is_superuser else None,
-        'email_source': _email_effective_source(EmailConfig.load()) if request.user.is_superuser else None,
+        # Solo el remitente de ESTA empresa (superuser). El SMTP es global del servidor:
+        # se configura en /empresas/correo/, no acá.
+        'sender_form': CompanySenderForm(instance=company) if request.user.is_superuser else None,
+        'sender_effective': resolve_from_email(company) if request.user.is_superuser else None,
     })
 
 
@@ -737,6 +769,131 @@ def _send_test_email(request, data):
         messages.error(request, f'No se pudo enviar el correo de prueba: {exc}')
 
 
+def _smtp_cert_names(host, port, use_tls):
+    """(nombres del certificado, nombre con que se identifica el servidor). Valida la
+    cadena pero NO el nombre — para sugerir el host correcto cuando el certificado es de
+    otro nombre (típico en hosting compartido: mail.dominio → premiumNNN.web-hosting.com)."""
+    import smtplib
+    import ssl
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    try:
+        conn = smtplib.SMTP(host, port, timeout=10)
+        try:
+            _code, banner = conn.ehlo()
+            server_name = (banner or b'').decode(errors='replace').split()[0] if banner else ''
+            if use_tls:
+                conn.starttls(context=ctx)
+            cert = conn.sock.getpeercert() or {}
+        finally:
+            conn.close()
+        return [v for k, v in cert.get('subjectAltName', ()) if k == 'DNS'], server_name
+    except Exception:
+        return [], ''
+
+
+def _verify_smtp(request, data):
+    """Verifica la configuración SMTP SIN enviar ningún correo: conecta, negocia el
+    cifrado, y autentica. Usa lo que está en el formulario (si `enabled` + host) o, si
+    no, el SMTP del .env — lo mismo que quedaría en uso. Cada fallo se traduce a un
+    mensaje con la causa probable y cómo corregirla."""
+    import smtplib
+    import socket
+    import ssl
+
+    if data['enabled'] and data['host']:
+        origen = 'del formulario'
+        host, port, user = data['host'], data['port'], data['username']
+        password, use_tls = data['password'], data['use_tls']
+    elif getattr(settings, 'EMAIL_HOST', ''):
+        origen = 'del .env del servidor'
+        host, port, user = settings.EMAIL_HOST, settings.EMAIL_PORT, settings.EMAIL_HOST_USER
+        password, use_tls = settings.EMAIL_HOST_PASSWORD, settings.EMAIL_USE_TLS
+    else:
+        messages.info(request, 'No hay ningún SMTP configurado (ni acá ni en el .env): los correos van a la consola.')
+        return
+
+    destino = f'{host}:{port}'
+    if port in (993, 143, 995, 110):
+        messages.error(
+            request,
+            f'El puerto {port} es de IMAP/POP (recibir correo), no de SMTP. Para enviar usá el 587 con TLS.',
+        )
+        return
+    if port == 465 and use_tls:
+        messages.error(
+            request,
+            'El puerto 465 usa SSL directo y esta app negocia TLS por STARTTLS: usá el puerto 587 con «Usar TLS».',
+        )
+        return
+
+    timeout = getattr(settings, 'EMAIL_TIMEOUT', 10)
+    paso = 'conectar'
+    try:
+        conn = smtplib.SMTP(host, port, timeout=timeout)
+        try:
+            conn.ehlo()
+            if use_tls:
+                paso = 'negociar el cifrado TLS'
+                conn.starttls(context=ssl.create_default_context())
+                conn.ehlo()
+            if user:
+                paso = 'autenticar'
+                conn.login(user, password)
+        finally:
+            try:
+                conn.quit()
+            except Exception:
+                conn.close()
+    except ssl.SSLCertVerificationError as exc:
+        from fnmatch import fnmatch
+        names, server_name = _smtp_cert_names(host, port, use_tls)
+        if server_name and any(fnmatch(server_name.lower(), n.lower()) for n in names):
+            # El servidor se identifica con un nombre que SÍ cubre su certificado.
+            hint = f' Usá «{server_name}» como servidor SMTP (así se identifica y para ese nombre es su certificado).'
+        elif names:
+            hint = f' El certificado es válido para: {", ".join(names[:4])}.'
+        else:
+            hint = ''
+        messages.error(
+            request,
+            f'{destino}: el certificado TLS del servidor no corresponde a «{host}».{hint} ({exc.verify_message})',
+        )
+    except smtplib.SMTPAuthenticationError as exc:
+        messages.error(
+            request,
+            f'{destino}: el servidor rechazó el usuario o la contraseña de «{user}» '
+            f'({exc.smtp_code}). Revisá la contraseña; con Gmail/Google Workspace tiene que ser una contraseña de aplicación.',
+        )
+    except smtplib.SMTPNotSupportedError as exc:
+        messages.error(request, f'{destino}: el servidor no soporta lo pedido al {paso} ({exc}). Probá con/sin «Usar TLS».')
+    except smtplib.SMTPServerDisconnected as exc:
+        messages.error(
+            request,
+            f'{destino}: el servidor cortó la conexión al {paso} ({exc}). Si fue al autenticar, suele ser '
+            'usuario inexistente o demasiados intentos fallidos; si fue al conectar, puerto o cifrado equivocados.',
+        )
+    except smtplib.SMTPException as exc:
+        # OJO: las excepciones de smtplib heredan de OSError — este bloque va antes.
+        messages.error(request, f'{destino}: error SMTP al {paso}: {exc}')
+    except (socket.timeout, TimeoutError):
+        messages.error(
+            request,
+            f'{destino}: sin respuesta al {paso} (timeout de {timeout}s). Suele ser el puerto equivocado '
+            'o un firewall que bloquea la salida del servidor.',
+        )
+    except OSError as exc:
+        messages.error(request, f'{destino}: no se pudo {paso} ({exc}). Revisá el nombre del servidor y el puerto.')
+    else:
+        detalle = f'autenticado como {user}' if user else 'sin autenticación'
+        cifrado = 'con TLS' if use_tls else 'SIN cifrado'
+        messages.success(
+            request,
+            f'Conexión SMTP correcta con {destino} ({cifrado}, {detalle}) — configuración tomada {origen}. '
+            'No se envió ningún correo.',
+        )
+
+
 def _email_effective_source(config):
     """Qué configuración de correo saliente está en uso AHORA: la de la base (esta
     pantalla) si está activa con host, si no la del .env del servidor, y si tampoco hay
@@ -788,13 +945,18 @@ def email_config(request):
 
     if request.method == 'POST':
         form = _email_config_form(config, request.POST)
-        if request.POST.get('action') == 'test':
+        action = request.POST.get('action')
+        if action in ('test', 'verify'):
+            # Ni la prueba ni la verificación guardan nada: usan los valores del form.
             if form.is_valid():
-                _send_test_email(request, form.cleaned_data)
+                if action == 'verify':
+                    _verify_smtp(request, form.cleaned_data)
+                else:
+                    _send_test_email(request, form.cleaned_data)
                 if next_url:
                     return redirect(next_url)
             else:
-                messages.error(request, 'Revisá los datos antes de probar el envío.')
+                messages.error(request, 'Revisá los datos antes de probar la configuración.')
         elif form.is_valid():
             form.save()
             messages.success(request, 'Configuración de correo actualizada.')

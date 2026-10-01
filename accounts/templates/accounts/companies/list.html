@@ -2,7 +2,7 @@
 {% block title %}Empresas{% endblock %}
 
 {% block app_content %}
-<div class="max-w-5xl">
+<div class="max-w-7xl">
   <div class="flex items-start justify-between gap-4 mb-4">
     <div>
       <h1 class="text-2xl font-black tracking-tight mb-1">Empresas</h1>
@@ -12,8 +12,8 @@
       </p>
     </div>
     <div class="flex gap-2 shrink-0">
-      <a href="{% url 'companies:email_config' %}" class="btn btn-ghost btn-sm">Correo (SMTP)</a>
-      <a href="{% url 'companies:create' %}" class="btn btn-success btn-sm">+ Empresa</a>
+      <a href="{% url 'companies:email_config' %}" class="btn btn-soft btn-sm gap-1.5"><svg class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>Correo (SMTP)</a>
+      <a href="{% url 'companies:create' %}" class="btn btn-success btn-sm gap-1.5"><svg class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="M12 5v14"/></svg>Empresa</a>
     </div>
   </div>
 
@@ -38,19 +38,28 @@
               {% if c.brand_name and c.brand_name != c.name %}<span class="text-xs text-base-content/50 font-normal">· marca «{{ c.brand_name }}»</span>{% endif %}
             </td>
             <td><code class="text-xs">/{{ c.slug }}/</code></td>
-            <td><code class="text-xs">{{ c.ticket_prefix }}-{{ c.ticket_seq|stringformat:"04d" }}</code></td>
+            <td class="whitespace-nowrap"><code class="text-xs">{{ c.ticket_prefix }}-{{ c.ticket_seq|stringformat:"04d" }}</code></td>
             <td class="text-right">{{ c.num_users }}{% if c.num_extra_users %} <span class="text-xs text-base-content/50" title="Usuarios de otras empresas con acceso">+{{ c.num_extra_users }}</span>{% endif %}</td>
             <td class="text-right">{{ c.num_tickets }}</td>
             <td>
               {% if c.is_active %}<span class="badge badge-success badge-sm">Activa</span>
               {% else %}<span class="badge badge-ghost badge-sm">Inactiva</span>{% endif %}
             </td>
-            <td class="text-right whitespace-nowrap">
-              <a href="/{{ c.slug }}/" class="btn btn-ghost btn-xs">Entrar</a>
-              <a href="/{{ c.slug }}/acceso/admin/" class="btn btn-ghost btn-xs">Cuentas</a>
-              <a href="/{{ c.slug }}/acceso/roles/" class="btn btn-ghost btn-xs">Roles</a>
-              <a href="/{{ c.slug }}/acceso/nextcloud/" class="btn btn-ghost btn-xs">Nextcloud</a>
-              <a href="{% url 'companies:edit' c.slug %}" class="btn btn-primary btn-xs">Editar</a>
+            <td>
+              {% comment %}
+              Color por tipo de acción (igual en todas las filas): entrar = verde; personas
+              (Cuentas, Accesos) = gris del tema; permisos (Roles) = ámbar; Nextcloud = su azul de marca
+              (.btn-nextcloud en styles.css) con su logo; Editar, la acción principal de la fila, con el color de marca. El dorado
+              del tema (accent) se evitó a propósito: sobre fondo claro no da contraste.
+              {% endcomment %}
+              <div class="flex flex-wrap xl:flex-nowrap justify-end gap-1">
+                <a href="/{{ c.slug }}/" class="btn btn-success btn-xs gap-1" title="Entrar a la empresa"><svg class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="m10 17 5-5-5-5"/><path d="M15 12H3"/></svg>Entrar</a>
+                <a href="/{{ c.slug }}/acceso/admin/" class="btn btn-secondary btn-xs gap-1" title="Usuarios, dominios y correos habilitados"><svg class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>Cuentas</a>
+                <a href="/{{ c.slug }}/acceso/roles/" class="btn btn-warning btn-xs gap-1" title="Qué puede hacer cada rol en esta empresa"><svg class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg>Roles</a>
+                <a href="/{{ c.slug }}/acceso/nextcloud/" class="btn btn-nextcloud btn-xs gap-1" title="Almacenamiento y login con Nextcloud"><svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><circle cx="3.6" cy="12" r="2.1"/><circle cx="20.4" cy="12" r="2.1"/></svg>Nextcloud</a>
+                <a href="{% url 'companies:edit' c.slug %}#miembros" class="btn btn-secondary btn-xs gap-1" title="Usuarios de otras empresas con acceso"><svg class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6"/><path d="M22 11h-6"/></svg>Accesos{% if c.num_extra_users %} ({{ c.num_extra_users }}){% endif %}</a>
+                <a href="{% url 'companies:edit' c.slug %}" class="btn btn-primary btn-xs gap-1" title="Nombre, marca, colores y prefijo de tickets"><svg class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/></svg>Editar</a>
+              </div>
             </td>
           </tr>
         {% empty %}

@@ -138,8 +138,18 @@
   document.addEventListener('submit', function (ev) {
     var form = ev.target;
     if (!form.matches('[data-submit-spinner]') || ev.defaultPrevented) return;
-    var btn = form.querySelector('button[type="submit"], button:not([type])');
+    // ev.submitter: el botón que se apretó (un form puede tener varios, ej. «Enviar
+    // correo de prueba» / «Guardar»). Un botón deshabilitado no viaja en el POST, así
+    // que su name/value se copia a un hidden antes de deshabilitarlo.
+    var btn = ev.submitter || form.querySelector('button[type="submit"], button:not([type])');
     if (!btn || btn.disabled) return;
+    if (btn.name) {
+      var hidden = document.createElement('input');
+      hidden.type = 'hidden';
+      hidden.name = btn.name;
+      hidden.value = btn.value;
+      form.appendChild(hidden);
+    }
     btn.disabled = true;
     btn.innerHTML = '<span class="loading loading-spinner loading-xs"></span> ' +
       (btn.dataset.spinnerLabel || 'Guardando…');

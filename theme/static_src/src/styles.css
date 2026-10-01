@@ -145,6 +145,20 @@
   color:            var(--color-neutral) !important;
 }
 
+/* Azul de marca de Nextcloud (#0082C9) para los accesos a su configuración. En oscuro
+   se aclara para mantener contraste sobre el fondo. */
+:root, html[data-theme="light"] { --color-nextcloud: #0082C9; }
+html[data-theme="dark"]          { --color-nextcloud: #4DB5F0; }
+.btn-nextcloud {
+  background-color: color-mix(in srgb, var(--color-nextcloud) 18%, transparent) !important;
+  border-color:     color-mix(in srgb, var(--color-nextcloud) 30%, transparent) !important;
+  color:            var(--color-nextcloud) !important;
+}
+.btn-nextcloud:hover {
+  background-color: color-mix(in srgb, var(--color-nextcloud) 28%, transparent) !important;
+  border-color:     color-mix(in srgb, var(--color-nextcloud) 40%, transparent) !important;
+}
+
 .btn-edit {
   background-color: color-mix(in srgb, var(--color-edit) 18%, transparent) !important;
   border-color:     color-mix(in srgb, var(--color-edit) 30%, transparent) !important;

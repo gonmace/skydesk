@@ -7,8 +7,32 @@ from .models import (
 )
 
 
+class SuperuserOnlyAdminMixin:
+    """Empresas, SMTP y pertenencia de un usuario a empresas son potestad exclusiva
+    del superuser — igual que en la app (`_superuser_required`). Sin esto, una cuenta
+    staff con permisos de modelo podría tocarlos desde el admin de Django."""
+
+    def _is_superuser(self, request):
+        return request.user.is_active and request.user.is_superuser
+
+    def has_module_permission(self, request):
+        return self._is_superuser(request)
+
+    def has_view_permission(self, request, obj=None):
+        return self._is_superuser(request)
+
+    def has_add_permission(self, request):
+        return self._is_superuser(request)
+
+    def has_change_permission(self, request, obj=None):
+        return self._is_superuser(request)
+
+    def has_delete_permission(self, request, obj=None):
+        return self._is_superuser(request)
+
+
 @admin.register(Company)
-class CompanyAdmin(admin.ModelAdmin):
+class CompanyAdmin(SuperuserOnlyAdminMixin, admin.ModelAdmin):
     list_display = ('name', 'slug', 'ticket_prefix', 'ticket_seq', 'is_active', 'created')
     list_filter = ('is_active',)
     search_fields = ('name', 'slug', 'ticket_prefix')
@@ -37,7 +61,7 @@ class BlockedEmailAdmin(admin.ModelAdmin):
 
 
 @admin.register(Profile)
-class ProfileAdmin(admin.ModelAdmin):
+class ProfileAdmin(SuperuserOnlyAdminMixin, admin.ModelAdmin):
     list_display = ('user', 'company', 'role', 'created')
     list_filter = ('company', 'role')
     search_fields = ('user__email', 'user__username')
@@ -70,5 +94,5 @@ class NextcloudOAuthConfigAdmin(admin.ModelAdmin):
 
 
 @admin.register(EmailConfig)
-class EmailConfigAdmin(admin.ModelAdmin):
+class EmailConfigAdmin(SuperuserOnlyAdminMixin, admin.ModelAdmin):
     list_display = ('__str__', 'host', 'notify_assignment', 'notify_comment', 'updated')
